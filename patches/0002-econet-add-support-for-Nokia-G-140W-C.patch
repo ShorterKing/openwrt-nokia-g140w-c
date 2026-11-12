@@ -1,4 +1,4 @@
-From e4965a35a16e33ae3761c27b74915aa492156d70 Mon Sep 17 00:00:00 2001
+From f9f784a0ea0903893e2afa04963e2dfb9b54203b Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
 Subject: [PATCH 2/2] econet: add support for Nokia G-140W-C
@@ -26,39 +26,60 @@ into firmware slot A ("tclinux"): a 4 MiB TRX kernel followed by UBI.
 Stock stays in slot B, and en75_chboot switches between them. LAN4 is
 the WAN port.
 
-A bring-up variant (RAM boot only) leaves the switch unmanaged and
-checks the vendor BMT pool size before touching the bad-block table.
+The RAM-test variant ("bringup") uses the same device tree but never
+writes slot A: it turns off BMT remapping there and renames the UBI
+area so the UBI auto-attach doesn't read it. It also checks the vendor
+BMT pool size.
 
 Installation: not final yet. So far the images have only been tested by
 loading the initramfs kernel through the bootloader's XMODEM command.
 ---
- .../econet/base-files/etc/board.d/02_network  |   9 +
+ .../econet/base-files/etc/board.d/01_leds     |   6 +
+ .../econet/base-files/etc/board.d/02_network  |  10 +
  .../econet/base-files/lib/upgrade/platform.sh |   6 +-
  .../linux/econet/base-files/sbin/en75_chboot  |  13 +
- .../dts/en751221_nokia_g140w-c-bringup.dts    |  19 +
- .../econet/dts/en751221_nokia_g140w-c.dts     | 120 ++++++
- .../econet/dts/en751221_nokia_g140w-c.dtsi    | 356 ++++++++++++++++++
- target/linux/econet/image/en751221.mk         |  27 ++
- 7 files changed, 548 insertions(+), 2 deletions(-)
+ .../dts/en751221_nokia_g140w-c-bringup.dts    |  34 ++
+ .../econet/dts/en751221_nokia_g140w-c.dts     |  10 +
+ .../econet/dts/en751221_nokia_g140w-c.dtsi    | 469 ++++++++++++++++++
+ target/linux/econet/image/en751221.mk         |  32 ++
+ 8 files changed, 578 insertions(+), 2 deletions(-)
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
 
+diff --git a/target/linux/econet/base-files/etc/board.d/01_leds b/target/linux/econet/base-files/etc/board.d/01_leds
+index 7b1a405171..82be82362d 100644
+--- a/target/linux/econet/base-files/etc/board.d/01_leds
++++ b/target/linux/econet/base-files/etc/board.d/01_leds
+@@ -35,6 +35,12 @@ jiofiber,jcow414)
+ 	ucidef_set_led_netdev "lan3-green" "lan3" "mt7530-0:0b:green:lan-3" "lan3" "tx rx"
+ 	ucidef_set_led_netdev "lan4-green" "lan4" "mt7530-0:0c:green:lan-4" "lan4" "tx rx"
+ 	;;
++nokia,g140w-c|\
++nokia,g140w-c-bringup)
++	ucidef_set_led_netdev "wan" "WAN" "green:wan" "lan4" "link"
++	ucidef_set_led_netdev "internet" "Internet" "green:wan-online" "lan4" "link tx rx"
++	ucidef_set_led_usbport "usb" "USB" "green:usb" "usb1-port1" "usb1-port2" "usb2-port1"
++	;;
+ esac
+ 
+ board_config_flush
 diff --git a/target/linux/econet/base-files/etc/board.d/02_network b/target/linux/econet/base-files/etc/board.d/02_network
-index 8bb6b25b0b..7cb7e66a18 100644
+index 8bb6b25b0b..c350be7e9a 100644
 --- a/target/linux/econet/base-files/etc/board.d/02_network
 +++ b/target/linux/econet/base-files/etc/board.d/02_network
-@@ -14,6 +14,9 @@ econet_setup_interfaces()
+@@ -14,6 +14,10 @@ econet_setup_interfaces()
  	jiofiber,jcow414)
  		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
  		;;
-+	nokia,g140w-c)
++	nokia,g140w-c|\
++	nokia,g140w-c-bringup)
 +		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "lan4"
 +		;;
  	*)
  		# The remaining boards have no DSA switch driver yet.
  		ucidef_set_interface_lan "eth0"
-@@ -33,6 +36,12 @@ econet_setup_macs()
+@@ -33,6 +37,12 @@ econet_setup_macs()
  		wan_mac="$(get_mac_gs3101)"
  		[ -n "$wan_mac" ] && lan_mac="$(macaddr_add $wan_mac 1)"
  		;;
@@ -121,22 +142,25 @@ index 165a3ebb7b..6a8968547f 100755
          part=$(part_named '"reservearea"')
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
 new file mode 100644
-index 0000000000..588c28f213
+index 0000000000..1eb82dd241
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,34 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++
 +/dts-v1/;
 +
 +#include "en751221_nokia_g140w-c.dtsi"
 +
 +/*
-+ * Bring-up image: the switch stays in the dumb mode set up by econet-eth,
-+ * so all four sockets bridge to eth0. Used for the first RAM boot and for
-+ * probing PHY addresses, LEDs and buttons. Not meant to be flashed.
++ * RAM-test image: the production device tree, except that it never writes
++ * slot A. The vendor BMT driver remaps a worn block even when it is only
++ * read, and OpenWrt's UBI auto-attach reads the first block of "ubi" at boot.
++ * So remapping is switched off for slot A and its UBI area is renamed.
++ * Not meant to be flashed.
 + */
 +/ {
-+	model = "Nokia G-140W-C (bring-up)";
++	model = "Nokia G-140W-C (RAM test)";
 +	compatible = "nokia,g140w-c-bringup", "econet,en751221";
 +};
 +
@@ -144,13 +168,26 @@ index 0000000000..588c28f213
 +&nand {
 +	econet,assert-reserve-size = <163>;
 +};
++
++&slot_a {
++	/delete-property/ econet,enable-remap;
++};
++
++&slot_a_kernel {
++	/delete-property/ econet,enable-remap;
++};
++
++&slot_a_ubi {
++	label = "ubi_slot_a";
++};
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dts b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
 new file mode 100644
-index 0000000000..60dbe340a8
+index 0000000000..c073bfb375
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,10 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++
 +/dts-v1/;
 +
 +#include "en751221_nokia_g140w-c.dtsi"
@@ -158,130 +195,19 @@ index 0000000000..60dbe340a8
 +/ {
 +	model = "Nokia G-140W-C";
 +	compatible = "nokia,g140w-c", "econet,en751221";
-+
-+	/*
-+	 * Integrated MT7530-family switch, driven by the mainline mt7530-mmio
-+	 * DSA driver. Verified against the stock eth.ko: PHYs are reached
-+	 * through the indirect access register at 0x701c with the same command
-+	 * layout as mt7531_ind_c22_phy_read().
-+	 *
-+	 * Stock firmware programs per-port registers 0x2[1-4]1c for the four
-+	 * LAN sockets (user ports 1-4, CPU port 6) and reads MT7530 GPHY IDs
-+	 * (0x03a29412) at phy[1..4], so PHY address = port number here (EN7528
-+	 * uses 9-12 instead). Stock /proc/tc3162/eth_portmap maps LAN1..LAN4 to
-+	 * switch ports 1..4 with port_reverse = 0, so lanN = printed "LANN".
-+	 */
-+	gsw: ethernet-switch@1fb58000 {
-+		compatible = "econet,en7528-switch";
-+		reg = <0x1fb58000 0x8000>;
-+		resets = <&scuclk EN751221_GSW_RST>;
-+		#address-cells = <1>;
-+		#size-cells = <0>;
-+
-+		ethernet-ports {
-+			#address-cells = <1>;
-+			#size-cells = <0>;
-+
-+			ethernet-port@1 {
-+				reg = <1>;
-+				label = "lan1";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy1>;
-+			};
-+
-+			ethernet-port@2 {
-+				reg = <2>;
-+				label = "lan2";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy2>;
-+			};
-+
-+			ethernet-port@3 {
-+				reg = <3>;
-+				label = "lan3";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy3>;
-+			};
-+
-+			ethernet-port@4 {
-+				reg = <4>;
-+				label = "lan4";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy4>;
-+			};
-+
-+			ethernet-port@6 {
-+				reg = <6>;
-+				ethernet = <&gmac0>;
-+				phy-mode = "internal";
-+
-+				fixed-link {
-+					speed = <1000>;
-+					full-duplex;
-+					pause;
-+				};
-+			};
-+		};
-+
-+		mdio {
-+			#address-cells = <1>;
-+			#size-cells = <0>;
-+
-+			gsw_phy1: ethernet-phy@1 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <1>;
-+			};
-+
-+			gsw_phy2: ethernet-phy@2 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <2>;
-+			};
-+
-+			gsw_phy3: ethernet-phy@3 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <3>;
-+			};
-+
-+			gsw_phy4: ethernet-phy@4 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <4>;
-+			};
-+		};
-+	};
-+};
-+
-+/*
-+ * Hand the switch half of the register window and the GSW reset to the
-+ * switch driver; econet-eth then acts as a pure DSA conduit (same split as
-+ * en7528.dtsi).
-+ */
-+&ethernet {
-+	reg = <0x1fb50000 0x8000>;
-+	resets = <&scuclk EN751221_FE_RST>,
-+		 <&scuclk EN751221_FE_QDMA1_RST>,
-+		 <&scuclk EN751221_FE_QDMA2_RST>,
-+		 <&scuclk EN751221_XPON_MAC_RST>,
-+		 <&scuclk EN751221_XPON_PHY_RST>;
-+	reset-names = "fe", "qdma0", "qdma1", "xpon-mac", "xpon-phy";
-+
-+	/delete-node/ mdio-bus;
-+};
-+
-+&gmac0 {
-+	phy-mode = "internal";
 +};
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
 new file mode 100644
-index 0000000000..c7a3a9426d
+index 0000000000..5a242e5c1f
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
-@@ -0,0 +1,356 @@
+@@ -0,0 +1,469 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +/*
 + * Nokia G-140W-C (EcoNet EN7526G, 512 MiB DDR3, 256 MiB SPI-NAND W25M02GV,
 + * MT7592 + MT7612E)
 + *
-+ * Common parts shared by the production (DSA) and bring-up device trees.
++ * Everything shared by the production and RAM-test device trees.
 + * Derived from en751221_nokia_g240g-e.dts, which has an identical flash
 + * layout. Items marked TODO must be verified on hardware.
 + */
@@ -420,19 +346,19 @@ index 0000000000..c7a3a9426d
 +		 * TRX kernel and a UBI area holding rootfs + rootfs_data.
 +		 * Slot B ("kernel_slave"/"rootfs_slave") keeps the stock firmware.
 +		 */
-+		partition@80000 {
++		slot_a: partition@80000 {
 +			label = "tclinux";
 +			reg = <0x80000 0x2200000>;
 +			econet,enable-remap;
 +		};
 +
-+		partition1@80000 {
++		slot_a_kernel: partition1@80000 {
 +			label = "tclinux_kernel";
 +			reg = <0x80000 0x400000>;
 +			econet,enable-remap;
 +		};
 +
-+		partition@480000 {
++		slot_a_ubi: partition@480000 {
 +			label = "ubi";
 +			reg = <0x480000 0x1e00000>;
 +		};
@@ -632,11 +558,124 @@ index 0000000000..c7a3a9426d
 +			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff>;
 +	};
 +};
++
++/ {
++	/*
++	 * Integrated MT7530-family switch, driven by the mainline mt7530-mmio
++	 * DSA driver. Verified against the stock eth.ko: PHYs are reached
++	 * through the indirect access register at 0x701c with the same command
++	 * layout as mt7531_ind_c22_phy_read().
++	 *
++	 * Stock firmware programs per-port registers 0x2[1-4]1c for the four
++	 * LAN sockets (user ports 1-4, CPU port 6) and reads MT7530 GPHY IDs
++	 * (0x03a29412) at phy[1..4], so PHY address = port number here (EN7528
++	 * uses 9-12 instead). Stock /proc/tc3162/eth_portmap maps LAN1..LAN4 to
++	 * switch ports 1..4 with port_reverse = 0, so lanN = printed "LANN".
++	 */
++	gsw: ethernet-switch@1fb58000 {
++		compatible = "econet,en7528-switch";
++		reg = <0x1fb58000 0x8000>;
++		resets = <&scuclk EN751221_GSW_RST>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		ethernet-ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			ethernet-port@1 {
++				reg = <1>;
++				label = "lan1";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy1>;
++			};
++
++			ethernet-port@2 {
++				reg = <2>;
++				label = "lan2";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy2>;
++			};
++
++			ethernet-port@3 {
++				reg = <3>;
++				label = "lan3";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy3>;
++			};
++
++			ethernet-port@4 {
++				reg = <4>;
++				label = "lan4";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy4>;
++			};
++
++			ethernet-port@6 {
++				reg = <6>;
++				ethernet = <&gmac0>;
++				phy-mode = "internal";
++
++				fixed-link {
++					speed = <1000>;
++					full-duplex;
++					pause;
++				};
++			};
++		};
++
++		mdio {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			gsw_phy1: ethernet-phy@1 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <1>;
++			};
++
++			gsw_phy2: ethernet-phy@2 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <2>;
++			};
++
++			gsw_phy3: ethernet-phy@3 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <3>;
++			};
++
++			gsw_phy4: ethernet-phy@4 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <4>;
++			};
++		};
++	};
++};
++
++/*
++ * Hand the switch half of the register window and the GSW reset to the
++ * switch driver; econet-eth then acts as a pure DSA conduit (same split as
++ * en7528.dtsi).
++ */
++&ethernet {
++	reg = <0x1fb50000 0x8000>;
++	resets = <&scuclk EN751221_FE_RST>,
++		 <&scuclk EN751221_FE_QDMA1_RST>,
++		 <&scuclk EN751221_FE_QDMA2_RST>,
++		 <&scuclk EN751221_XPON_MAC_RST>,
++		 <&scuclk EN751221_XPON_PHY_RST>;
++	reset-names = "fe", "qdma0", "qdma1", "xpon-mac", "xpon-phy";
++
++	/delete-node/ mdio-bus;
++};
++
++&gmac0 {
++	phy-mode = "internal";
++};
 diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
-index ec96a5ac20..021f7fbb4f 100644
+index ec96a5ac20..b354e8b11e 100644
 --- a/target/linux/econet/image/en751221.mk
 +++ b/target/linux/econet/image/en751221.mk
-@@ -54,6 +54,33 @@ define Device/nokia_g240g-e
+@@ -54,6 +54,38 @@ define Device/nokia_g240g-e
  endef
  TARGET_DEVICES += nokia_g240g-e
  
@@ -653,6 +692,10 @@ index ec96a5ac20..021f7fbb4f 100644
 +  TRX_LOADADDR := 0x80002000
 +  KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \
 +    kernel-trx
++  # RAM boot: tcboot's xmdm loads the image at 0x80020000 and the kernel
++  # decompresses to 0x81000000, so the loader (image, 1 MiB DTB slot and
++  # 4 MiB heap) has to end below that.
++  KERNEL_INITRAMFS := kernel-bin | append-dtb | check-size 11394032
 +  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
 +endef
 +TARGET_DEVICES += nokia_g140w-c
@@ -660,8 +703,9 @@ index ec96a5ac20..021f7fbb4f 100644
 +define Device/nokia_g140w-c-bringup
 +  DEVICE_VENDOR := Nokia
 +  DEVICE_MODEL := G-140W-C
-+  DEVICE_VARIANT := bring-up (RAM boot only)
++  DEVICE_VARIANT := RAM test (never writes slot A)
 +  DEVICE_DTS := en751221_nokia_g140w-c-bringup
++  KERNEL_INITRAMFS := kernel-bin | append-dtb | check-size 11394032
 +  IMAGES :=
 +  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
 +endef

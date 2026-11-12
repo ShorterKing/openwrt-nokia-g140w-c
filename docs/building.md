@@ -41,8 +41,8 @@ In `bin/targets/econet/en751221/`:
 
 | File | Use |
 |---|---|
-| `openwrt-econet-en751221-nokia_g140w-c-initramfs-kernel.bin` | RAM boot, production image |
-| `openwrt-econet-en751221-nokia_g140w-c-bringup-initramfs-kernel.bin` | RAM boot, bring-up image |
+| `openwrt-econet-en751221-nokia_g140w-c-bringup-initramfs-kernel.bin` | RAM boot for testing (never writes slot A) |
+| `openwrt-econet-en751221-nokia_g140w-c-initramfs-kernel.bin` | RAM boot, production image (for installing) |
 | `openwrt-econet-en751221-nokia_g140w-c-squashfs-tclinux.trx` | Full slot A image (kernel + UBI), for the first install |
 | `openwrt-econet-en751221-nokia_g140w-c-squashfs-sysupgrade.bin` | Upgrades from a running OpenWrt |
 
@@ -51,8 +51,15 @@ The install procedure is not final yet. Until it is, only use the
 
 ## Notes
 
-- `config/diffconfig` builds both devices (production and bring-up) with
-  LuCI, the GPIO tools and `/dev/mem` enabled for probing.
+- `config/diffconfig` builds both devices (production and RAM test) with
+  LuCI, WPA3-capable Wi-Fi (`wpad-basic-mbedtls`), the GPIO tools, and
+  `/dev/mem` for probing. It also includes the extras: USB storage (FAT32,
+  exFAT, NTFS, ext4) with Windows file sharing (`ksmbd`), WireGuard, USB
+  tethering for Android and iPhone, and the USB LED trigger.
+- RAM-boot images must stay under 11,394,032 bytes. The bootloader loads
+  them at `0x80020000` and the kernel decompresses to `0x81000000`, so a
+  bigger loader would overlap it. The image recipe checks this and drops
+  an oversized image with a warning.
 - The target is marked `source-only` in OpenWrt, so the official servers
   publish no kernel modules for it. Extra kernel modules have to come from
   your own build; userspace packages from the `mips_24kc` feeds work.

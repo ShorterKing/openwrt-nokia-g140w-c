@@ -3,11 +3,12 @@
 This loads an OpenWrt kernel into RAM through the bootloader and runs it. It
 doesn't install anything: power-cycle the router and it boots stock again.
 
-> **Known issue:** while booting, OpenWrt reads the start of slot A to look
-> for UBI. If that block is worn, the NAND bad-block driver remaps it, which
-> writes to flash. This happened once on the reference unit, inside slot A,
-> which held only an old stock copy. A fix is being prepared. Until then,
-> only RAM-boot if slot A holds nothing you need.
+> **Use the RAM-test image for testing.** While booting, the production
+> image reads the start of slot A to look for UBI. If that block is worn,
+> the NAND bad-block driver remaps it, which writes to flash. This happened
+> once on the reference unit, inside slot A, which held only an old stock
+> copy. The RAM-test image turns remapping off for slot A and doesn't look
+> for UBI there. That fix is not yet tested on hardware.
 
 ## You need
 
@@ -16,10 +17,11 @@ doesn't install anything: power-cycle the router and it boots stock again.
 - A terminal that can send XMODEM files: Tera Term on Windows, or
   `minicom` with `lrzsz` on Linux.
 - An image ending in `-initramfs-kernel.bin` (see [building.md](building.md)):
-  - `...-nokia_g140w-c-initramfs-kernel.bin`: production image (DSA switch,
-    LAN4 = WAN).
-  - `...-nokia_g140w-c-bringup-initramfs-kernel.bin`: bring-up image
-    (unmanaged switch, extra checks), for probing new hardware.
+  - `...-nokia_g140w-c-bringup-initramfs-kernel.bin`: **RAM-test image**.
+    It's the same as production (switch under DSA, LAN4 = WAN), but it
+    never writes slot A and checks the bad-block pool size. Use this one.
+  - `...-nokia_g140w-c-initramfs-kernel.bin`: production image, used for
+    installing.
 
 ## Steps
 

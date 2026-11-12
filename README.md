@@ -21,12 +21,16 @@ side and the phone port are out of scope, because their drivers are closed.
 | Buttons | ✅ | Reset and LED on/off |
 | Separate WAN port (LAN4) | ⏳ | In the build (DSA), not yet tested |
 | USB | ⏳ | Not yet tested |
+| Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
 | Install to flash, sysupgrade | ⏳ | Planned: OpenWrt in slot A, stock kept in slot B |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
 
 The LED names and button keys were found on hardware and are in the device
-tree; they arrive with the next test build.
+tree; they arrive with the next test build. By default, the PON LED shows the
+WAN cable link, the Internet LED shows WAN link and traffic, the USB LED
+lights when a USB device is plugged in, and the 2.4 GHz LED shows Wi-Fi
+activity.
 
 ## Hardware
 
@@ -72,11 +76,13 @@ The full GPIO, LED, button, MAC and flash maps are in
 - The device tree embeds Wi-Fi calibration data copied from the reference
   unit. Other units will work, but their radios may perform a little worse
   until the calibration is read from flash (planned).
-- When an image is RAM-booted, OpenWrt reads slot A while looking for UBI. On
-  this NAND driver, reading a worn block makes it remap the block, which
-  writes to flash. This happened once on the reference unit, inside slot A. A
-  fix is being prepared; until then, only RAM-boot if slot A holds nothing you
-  need.
+- When the production image is RAM-booted, OpenWrt reads slot A while
+  looking for UBI. On this NAND driver, reading a worn block makes it remap
+  the block, which writes to flash. This happened once on the reference
+  unit, inside slot A. The RAM-test image (`-bringup-` in the file name)
+  avoids this: it turns remapping off for slot A and doesn't look for UBI
+  there. Use it for testing. The fix is in the build but not yet tested on
+  hardware.
 
 ## Repository layout
 
@@ -91,7 +97,8 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 1. Test the production image: LAN4 as WAN, routing speed.
 2. Install to flash; test sysupgrade and switching back to stock.
-3. Add USB storage, WireGuard and USB tethering to the default build.
+3. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
+   tethering.
 4. Read the Wi-Fi calibration from flash instead of embedding it.
 5. Publish images and submit the port to OpenWrt.
 

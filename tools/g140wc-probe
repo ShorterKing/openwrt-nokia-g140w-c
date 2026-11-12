@@ -1,0 +1,119 @@
+#!/bin/sh
+# Nokia G-140W-C bring-up probe. Run it on a RAM-booted test image.
+#
+#   g140wc-probe info      board facts: RAM, PCIe radios, MTD, links, driver messages
+#   g140wc-probe phys      scan switch MDIO addresses 0-31 for PHY IDs
+#   g140wc-probe ports     live link view of switch ports 0-6 (Ctrl-C to stop)
+#   g140wc-probe gpios     list GPIO lines and who owns them
+#   g140wc-probe buttons   show the reset and LED button state for 20 s
+#
+# phys and ports need /dev/mem (build with CONFIG_KERNEL_DEVMEM=y).
+# The PHY access sequence matches the stock tcMiiStationRead() in eth.ko:
+# write 0x80090000 | reg<<25 | phy<<20 to switch reg 0x701c, poll bit 31.
+# This script never drives a GPIO: GPIO 27 is the PON laser TX-disable line.
+
+SW=$((0x1fb58000))
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 1; }; }
+
+need_devmem() {
+	need devmem
+	[ -e /dev/mem ] || { echo "no /dev/mem: rebuild with CONFIG_KERNEL_DEVMEM=y" >&2; exit 1; }
+}
+
+rd() { devmem "$(printf '0x%x' $((SW + $1)))" 32; }
+wr() { devmem "$(printf '0x%x' $((SW + $1)))" 32 "$(printf '0x%x' "$2")"; }
+
+phy_read() {
+	wr 0x701c $((0x80090000 | ($2 << 25) | ($1 << 20)))
+	n=0
+	while [ $n -lt 200 ]; do
+		v=$(rd 0x701c)
+		if [ $((v & 0x80000000)) -eq 0 ]; then
+			echo $((v & 0xffff))
+			return 0
+		fi
+		n=$((n + 1))
+	done
+	echo -1
+}
+
+do_info() {
+	echo "== board";   cat /tmp/sysinfo/model 2>/dev/null; cat /tmp/sysinfo/board_name 2>/dev/null
+	echo "== memory";  grep -E 'MemTotal|MemFree' /proc/meminfo
+	echo "== pci";     lspci -nn 2>/dev/null || ls /sys/bus/pci/devices
+	echo "== mtd";     cat /proc/mtd
+	echo "== links"
+	for n in /sys/class/net/*; do
+		printf '%-12s %s\n' "${n##*/}" "$(cat "$n/operstate" 2>/dev/null)"
+	done
+	echo "== kernel messages (eth/switch/wifi/pcie/nand)"
+	dmesg | grep -iE 'econet|eth|dsa|mt7530|mt76|pcie|pci |nand|bmt|phy' | tail -n 60
+}
+
+do_phys() {
+	need_devmem
+	echo "addr  ID1    ID2    BMSR"
+	a=0
+	while [ $a -le 31 ]; do
+		id1=$(phy_read $a 2); id2=$(phy_read $a 3)
+		if [ "$id1" != -1 ] && [ "$id1" != 65535 ] && [ "$id1" != 0 ]; then
+			bmsr=$(phy_read $a 1)
+			printf '%4d  0x%04x 0x%04x 0x%04x  link=%s\n' $a $id1 $id2 $bmsr \
+				$(( (bmsr >> 2) & 1 ))
+		fi
+		a=$((a + 1))
+	done
+	echo "(stock firmware: MT7530 GPHYs 0x03a29412 at addresses 1-4 = ports 1-4)"
+}
+
+do_ports() {
+	need_devmem
+	echo "Plug one cable into each socket in turn. Ctrl-C to stop."
+	while :; do
+		line=""
+		p=0
+		while [ $p -le 6 ]; do
+			v=$(rd $((0x3008 + p * 0x100)))
+			if [ $((v & 1)) -eq 1 ]; then
+				case $(((v >> 2) & 3)) in 0) s=10;; 1) s=100;; *) s=1000;; esac
+				line="$line p$p:UP/$s"
+			else
+				line="$line p$p:--"
+			fi
+			p=$((p + 1))
+		done
+		printf '\r%s   ' "$line"
+		sleep 1
+	done
+}
+
+do_gpios() {
+	need gpiodetect
+	gpiodetect
+	for c in $(gpiodetect | awk '{print $1}'); do gpioinfo -c "$c"; done
+}
+
+do_buttons() {
+	# The buttons belong to gpio-keys-polled, so read their state from
+	# debugfs instead of requesting the lines.
+	f=/sys/kernel/debug/gpio
+	[ -r "$f" ] || { echo "cannot read $f (is debugfs mounted?)" >&2; exit 1; }
+	echo "Press reset and the LED button within 20 s (hi = released)."
+	o=""
+	end=$(( $(date +%s) + 20 ))
+	while [ "$(date +%s)" -lt "$end" ]; do
+		v=$(sed -nE 's/.*\|(reset|lights) *\) +in +(hi|lo).*/\1=\2/p' "$f" | tr '\n' ' ')
+		[ "$v" != "$o" ] && echo "$v"
+		o=$v
+	done
+}
+
+case "$1" in
+	info)    do_info ;;
+	phys)    do_phys ;;
+	ports)   do_ports ;;
+	gpios)   do_gpios ;;
+	buttons) do_buttons ;;
+	*) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

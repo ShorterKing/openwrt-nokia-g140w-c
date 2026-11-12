@@ -1,0 +1,675 @@
+From e4965a35a16e33ae3761c27b74915aa492156d70 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 22:15:37 +0000
+Subject: [PATCH 2/2] econet: add support for Nokia G-140W-C
+
+The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
+dual-band Wi-Fi, supplied by Airtel in India.
+
+Hardware:
+ - SoC: EcoNet EN7526G (EN751221 family), MIPS 34Kc, 2 threads, 900 MHz
+ - RAM: 512 MiB DDR3 (Linux can use the first 0x1b800000 bytes)
+ - Flash: 256 MiB SPI-NAND (Winbond W25M02GV) with the vendor BMT
+ - Ethernet: 4x 1 GbE on switch ports 1-4
+ - Wi-Fi 2.4 GHz: MT7592 (mt7603) on PCIe RC0
+ - Wi-Fi 5 GHz: MT7612E (mt76x2) on PCIe RC1
+ - USB: xHCI
+ - LEDs: power, PON, LOS, Internet, phone and USB on GPIOs; 2.4 GHz
+   WLAN on the MT7592 LED pin
+ - Buttons: reset (GPIO 0), LED on/off (GPIO 5)
+ - Serial: 115200 8N1
+
+Not supported: GPON and VoIP (closed vendor drivers).
+
+The flash layout and bootloader match the Nokia G-240G-E. OpenWrt goes
+into firmware slot A ("tclinux"): a 4 MiB TRX kernel followed by UBI.
+Stock stays in slot B, and en75_chboot switches between them. LAN4 is
+the WAN port.
+
+A bring-up variant (RAM boot only) leaves the switch unmanaged and
+checks the vendor BMT pool size before touching the bad-block table.
+
+Installation: not final yet. So far the images have only been tested by
+loading the initramfs kernel through the bootloader's XMODEM command.
+---
+ .../econet/base-files/etc/board.d/02_network  |   9 +
+ .../econet/base-files/lib/upgrade/platform.sh |   6 +-
+ .../linux/econet/base-files/sbin/en75_chboot  |  13 +
+ .../dts/en751221_nokia_g140w-c-bringup.dts    |  19 +
+ .../econet/dts/en751221_nokia_g140w-c.dts     | 120 ++++++
+ .../econet/dts/en751221_nokia_g140w-c.dtsi    | 356 ++++++++++++++++++
+ target/linux/econet/image/en751221.mk         |  27 ++
+ 7 files changed, 548 insertions(+), 2 deletions(-)
+ create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
+ create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
+ create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
+
+diff --git a/target/linux/econet/base-files/etc/board.d/02_network b/target/linux/econet/base-files/etc/board.d/02_network
+index 8bb6b25b0b..7cb7e66a18 100644
+--- a/target/linux/econet/base-files/etc/board.d/02_network
++++ b/target/linux/econet/base-files/etc/board.d/02_network
+@@ -14,6 +14,9 @@ econet_setup_interfaces()
+ 	jiofiber,jcow414)
+ 		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
+ 		;;
++	nokia,g140w-c)
++		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "lan4"
++		;;
+ 	*)
+ 		# The remaining boards have no DSA switch driver yet.
+ 		ucidef_set_interface_lan "eth0"
+@@ -33,6 +36,12 @@ econet_setup_macs()
+ 		wan_mac="$(get_mac_gs3101)"
+ 		[ -n "$wan_mac" ] && lan_mac="$(macaddr_add $wan_mac 1)"
+ 		;;
++	nokia,g140w-c|\
++	nokia,g140w-c-bringup)
++		label_mac="$(mtd_get_mac_binary ri 0x3e)"
++		lan_mac="$label_mac"
++		wan_mac="$(macaddr_add "$label_mac" 1)"
++		;;
+ 	huawei,hg2821t-u)
+ 		local conffile="/tmp/configuration_a/factory.conf"
+ 		lan_mac=$(get_mac_ascii "$conffile" brmac)
+diff --git a/target/linux/econet/base-files/lib/upgrade/platform.sh b/target/linux/econet/base-files/lib/upgrade/platform.sh
+index 19c0072e63..8f967f7242 100644
+--- a/target/linux/econet/base-files/lib/upgrade/platform.sh
++++ b/target/linux/econet/base-files/lib/upgrade/platform.sh
+@@ -6,7 +6,8 @@ platform_check_image() {
+ 	dasan,h660gm-a-airtel|\
+ 	dasan,h660gm-a-generic|\
+ 	jiofiber,jcow407|\
+-	jiofiber,jcow414)
++	jiofiber,jcow414|\
++	nokia,g140w-c)
+ 		return 0
+ 		;;
+ 	esac
+@@ -22,7 +23,8 @@ platform_do_upgrade() {
+ 	dasan,h660gm-a-airtel|\
+ 	dasan,h660gm-a-generic|\
+ 	jiofiber,jcow407|\
+-	jiofiber,jcow414)
++	jiofiber,jcow414|\
++	nokia,g140w-c)
+ 		CI_KERNPART="tclinux_kernel"
+ 		nand_do_upgrade "$1"
+ 		;;
+diff --git a/target/linux/econet/base-files/sbin/en75_chboot b/target/linux/econet/base-files/sbin/en75_chboot
+index 165a3ebb7b..6a8968547f 100755
+--- a/target/linux/econet/base-files/sbin/en75_chboot
++++ b/target/linux/econet/base-files/sbin/en75_chboot
+@@ -128,6 +128,19 @@ main() {
+         code_factory=000000000000000100000001000000010000000000000000
+            read_mask=000000000000000X00000000000000000000000000000000
+         ;;
++    nokia,g140w-c)
++        # tcboot flag words, as printed by the bootloader:
++        #   commit, next_active, image0_is_valid, image1_is_valid,
++        #   boot_fail_num, (unused)
++        # OpenWrt lives in image0 (tclinux), stock stays in image1 (slave).
++        part=$(part_named '"flag"')
++        offset_blocks=0
++        block_size=$((1024 * 128))
++        code_offset=0
++        code_openwrt=000000010000000000000001000000010000000000000000
++        code_factory=000000010000000100000001000000010000000000000000
++           read_mask=000000000000000X00000000000000000000000000000000
++        ;;
+     smartfiber,xp8421-b)
+         # 0dfc0000
+         part=$(part_named '"reservearea"')
+diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
+new file mode 100644
+index 0000000000..588c28f213
+--- /dev/null
++++ b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++/dts-v1/;
++
++#include "en751221_nokia_g140w-c.dtsi"
++
++/*
++ * Bring-up image: the switch stays in the dumb mode set up by econet-eth,
++ * so all four sockets bridge to eth0. Used for the first RAM boot and for
++ * probing PHY addresses, LEDs and buttons. Not meant to be flashed.
++ */
++/ {
++	model = "Nokia G-140W-C (bring-up)";
++	compatible = "nokia,g140w-c-bringup", "econet,en751221";
++};
++
++/* Bootloader log: "bmt pool size: 163". Abort BMT setup if we disagree. */
++&nand {
++	econet,assert-reserve-size = <163>;
++};
+diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dts b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
+new file mode 100644
+index 0000000000..60dbe340a8
+--- /dev/null
++++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
+@@ -0,0 +1,120 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++/dts-v1/;
++
++#include "en751221_nokia_g140w-c.dtsi"
++
++/ {
++	model = "Nokia G-140W-C";
++	compatible = "nokia,g140w-c", "econet,en751221";
++
++	/*
++	 * Integrated MT7530-family switch, driven by the mainline mt7530-mmio
++	 * DSA driver. Verified against the stock eth.ko: PHYs are reached
++	 * through the indirect access register at 0x701c with the same command
++	 * layout as mt7531_ind_c22_phy_read().
++	 *
++	 * Stock firmware programs per-port registers 0x2[1-4]1c for the four
++	 * LAN sockets (user ports 1-4, CPU port 6) and reads MT7530 GPHY IDs
++	 * (0x03a29412) at phy[1..4], so PHY address = port number here (EN7528
++	 * uses 9-12 instead). Stock /proc/tc3162/eth_portmap maps LAN1..LAN4 to
++	 * switch ports 1..4 with port_reverse = 0, so lanN = printed "LANN".
++	 */
++	gsw: ethernet-switch@1fb58000 {
++		compatible = "econet,en7528-switch";
++		reg = <0x1fb58000 0x8000>;
++		resets = <&scuclk EN751221_GSW_RST>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		ethernet-ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			ethernet-port@1 {
++				reg = <1>;
++				label = "lan1";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy1>;
++			};
++
++			ethernet-port@2 {
++				reg = <2>;
++				label = "lan2";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy2>;
++			};
++
++			ethernet-port@3 {
++				reg = <3>;
++				label = "lan3";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy3>;
++			};
++
++			ethernet-port@4 {
++				reg = <4>;
++				label = "lan4";
++				phy-mode = "internal";
++				phy-handle = <&gsw_phy4>;
++			};
++
++			ethernet-port@6 {
++				reg = <6>;
++				ethernet = <&gmac0>;
++				phy-mode = "internal";
++
++				fixed-link {
++					speed = <1000>;
++					full-duplex;
++					pause;
++				};
++			};
++		};
++
++		mdio {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			gsw_phy1: ethernet-phy@1 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <1>;
++			};
++
++			gsw_phy2: ethernet-phy@2 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <2>;
++			};
++
++			gsw_phy3: ethernet-phy@3 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <3>;
++			};
++
++			gsw_phy4: ethernet-phy@4 {
++				compatible = "ethernet-phy-ieee802.3-c22";
++				reg = <4>;
++			};
++		};
++	};
++};
++
++/*
++ * Hand the switch half of the register window and the GSW reset to the
++ * switch driver; econet-eth then acts as a pure DSA conduit (same split as
++ * en7528.dtsi).
++ */
++&ethernet {
++	reg = <0x1fb50000 0x8000>;
++	resets = <&scuclk EN751221_FE_RST>,
++		 <&scuclk EN751221_FE_QDMA1_RST>,
++		 <&scuclk EN751221_FE_QDMA2_RST>,
++		 <&scuclk EN751221_XPON_MAC_RST>,
++		 <&scuclk EN751221_XPON_PHY_RST>;
++	reset-names = "fe", "qdma0", "qdma1", "xpon-mac", "xpon-phy";
++
++	/delete-node/ mdio-bus;
++};
++
++&gmac0 {
++	phy-mode = "internal";
++};
+diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
+new file mode 100644
+index 0000000000..c7a3a9426d
+--- /dev/null
++++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
+@@ -0,0 +1,356 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++/*
++ * Nokia G-140W-C (EcoNet EN7526G, 512 MiB DDR3, 256 MiB SPI-NAND W25M02GV,
++ * MT7592 + MT7612E)
++ *
++ * Common parts shared by the production (DSA) and bring-up device trees.
++ * Derived from en751221_nokia_g240g-e.dts, which has an identical flash
++ * layout. Items marked TODO must be verified on hardware.
++ */
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
++
++#include "en751221.dtsi"
++
++/ {
++	/*
++	 * 512 MiB DDR3 fitted, but only the part below the 0x1c000000 I/O
++	 * window is reachable; the stock kernel uses 0x0-0x1b800000 (440 MiB).
++	 */
++	memory@0 {
++		device_type = "memory";
++		reg = <0x00000000 0x1b800000>;
++	};
++
++	chosen {
++		stdout-path = "/serial@1fbf0000:115200";
++		linux,usable-memory-range = <0x00020000 0x1b7e0000>;
++	};
++
++	aliases {
++		led-boot = &led_power;
++		led-failsafe = &led_red;
++		led-running = &led_power;
++		led-upgrade = &led_pon;
++	};
++
++	/*
++	 * The stock led_drv.ko/gpio_mgr.ko have a table for this board
++	 * ("G140WC"): power GPIO 6, PON GPIO 2, LOS GPIO 24, Internet GPIO 28,
++	 * phone GPIO 25 (LED id 9, used by the SIP app) and USB GPIO 11 (LED
++	 * ids 15/67, used by the USB notifier). All active-low; each one was
++	 * lit from Linux and matched to its D-number on the PCB. GPIO 27 is the
++	 * PON laser TX-disable line and must stay alone. The 2.4 GHz WLAN LED
++	 * (D505) hangs off the MT7592 (see &slot0).
++	 * Edge order from the power LED (D508): D501 D504 D510 D511 D512 D502
++	 * D506 D513 D505 D515 D514 D503.
++	 * TODO: D510 D511 D512 D502 D513 D515 (LAN on the GPHYs? 5 GHz? WPS?)
++	 */
++	leds {
++		compatible = "gpio-leds";
++
++		led_power: led-0 {
++			color = <LED_COLOR_ID_GREEN>;
++			function = LED_FUNCTION_POWER;
++			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
++		};
++
++		led_pon: led-1 {
++			/* D501, "PON" position (2nd from power) */
++			color = <LED_COLOR_ID_GREEN>;
++			function = LED_FUNCTION_WAN;
++			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
++		};
++
++		led_red: led-2 {
++			/* D504, red, "LOS" position (3rd from power) */
++			color = <LED_COLOR_ID_RED>;
++			function = LED_FUNCTION_ALARM;
++			gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
++		};
++
++		led_phone: led-3 {
++			/* D506, phone (no VoIP in OpenWrt, so free to reassign) */
++			color = <LED_COLOR_ID_GREEN>;
++			function = "phone";
++			gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;
++		};
++
++		led_internet: led-4 {
++			/* D503, "Internet" in the stock table */
++			color = <LED_COLOR_ID_GREEN>;
++			function = LED_FUNCTION_WAN_ONLINE;
++			gpios = <&gpio0 28 GPIO_ACTIVE_LOW>;
++		};
++
++		led_usb: led-5 {
++			/* D514, USB */
++			color = <LED_COLOR_ID_GREEN>;
++			function = LED_FUNCTION_USB;
++			gpios = <&gpio0 11 GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	/*
++	 * From the stock button_driver.ko table for this board: reset on GPIO 0
++	 * and an "LED" (lights on/off) button on GPIO 5, both idle high. The
++	 * WLAN and WPS buttons are wired to the Wi-Fi chip, which mt76 cannot
++	 * read.
++	 */
++	keys {
++		compatible = "gpio-keys-polled";
++		poll-interval = <100>;
++
++		key-reset {
++			label = "reset";
++			linux,code = <KEY_RESTART>;
++			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
++		};
++
++		key-lights {
++			label = "lights";
++			linux,code = <KEY_LIGHTS_TOGGLE>;
++			gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
++		};
++	};
++};
++
++&nand {
++	status = "okay";
++	econet,bmt;
++
++	partitions {
++		compatible = "fixed-partitions";
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "bootloader";
++			reg = <0x0 0x40000>;
++			read-only;
++		};
++
++		partition@40000 {
++			label = "romfile";
++			reg = <0x40000 0x40000>;
++		};
++
++		/*
++		 * Slot A (stock "linux" / "image0"). The bootloader writes the
++		 * factory image across all of it; OpenWrt splits it into a raw
++		 * TRX kernel and a UBI area holding rootfs + rootfs_data.
++		 * Slot B ("kernel_slave"/"rootfs_slave") keeps the stock firmware.
++		 */
++		partition@80000 {
++			label = "tclinux";
++			reg = <0x80000 0x2200000>;
++			econet,enable-remap;
++		};
++
++		partition1@80000 {
++			label = "tclinux_kernel";
++			reg = <0x80000 0x400000>;
++			econet,enable-remap;
++		};
++
++		partition@480000 {
++			label = "ubi";
++			reg = <0x480000 0x1e00000>;
++		};
++
++		/* Stock firmware stays here: fallback via the bootloader flag */
++		partition@2280000 {
++			label = "kernel_slave";
++			reg = <0x2280000 0x300000>;
++			read-only;
++		};
++
++		partition@2580000 {
++			label = "rootfs_slave";
++			reg = <0x2580000 0x1f00000>;
++			read-only;
++		};
++
++		partition@4480000 {
++			label = "kernel_oflt";
++			reg = <0x4480000 0x300000>;
++			read-only;
++		};
++
++		partition@4780000 {
++			label = "rootfs_oflt";
++			reg = <0x4780000 0xc00000>;
++			read-only;
++		};
++
++		partition@5380000 {
++			label = "config";
++			reg = <0x5380000 0x800000>;
++			read-only;
++		};
++
++		partition@5b80000 {
++			label = "log";
++			reg = <0x5b80000 0xc00000>;
++		};
++
++		partition@6780000 {
++			label = "extfs";
++			reg = <0x6780000 0x600000>;
++		};
++
++		partition@6d80000 {
++			label = "bosa";
++			reg = <0x6d80000 0x40000>;
++			read-only;
++		};
++
++		partition@6dc0000 {
++			label = "flag";
++			reg = <0x6dc0000 0x40000>;
++		};
++
++		partition@6e00000 {
++			label = "flagback";
++			reg = <0x6e00000 0x40000>;
++		};
++
++		partition@6e40000 {
++			label = "ri";
++			reg = <0x6e40000 0x40000>;
++			read-only;
++
++			nvmem-layout {
++				compatible = "fixed-layout";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				/* Base MAC: the same value ritool reports as MACAddress */
++				macaddr_ri_3e: macaddr@3e {
++					compatible = "mac-base";
++					reg = <0x3e 0x6>;
++					#nvmem-cell-cells = <1>;
++				};
++			};
++		};
++
++		partition@6e80000 {
++			label = "riback";
++			reg = <0x6e80000 0x40000>;
++			read-only;
++		};
++	};
++};
++
++&gmac0 {
++	status = "okay";
++	nvmem-cells = <&macaddr_ri_3e 0>;
++	nvmem-cell-names = "mac-address";
++};
++
++/*
++ * Radio placement confirmed from the stock boot log: MT7592 (14c3:7603) on
++ * PCIe RC0, MT7612E (14c3:7662, 64-bit BAR) on the Gen2 RC1.
++ *
++ * The EEPROM tables below are per-unit RF calibration taken from
++ * /configs (UBIFS on "config"). They belong to ONE physical unit.
++ */
++&pcie0 {
++	status = "okay";
++};
++
++&slot0 {
++	wifi@0,0 {
++		/* MT7592 2.4 GHz (mt7603 driver); stock used base MAC + 0x9 */
++		compatible = "mediatek,mt76";
++		reg = <0x0000 0 0 0 0>;
++		nvmem-cells = <&macaddr_ri_3e 9>;
++		nvmem-cell-names = "mac-address";
++		mediatek,eeprom-data = /bits/ 8 <
++			0x92 0x75 0x0f 0x00 0x00 0x0c 0x43 0x26 0x60 0x40 0x03 0x76 0xc3 0x14 0xff 0xff
++			0xff 0xff 0x03 0x76 0xc3 0x14 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
++			0x00 0x00 0xb0 0x07 0x80 0x00 0x60 0x7f 0xfd 0x9b 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0x22 0x34 0x00 0x20 0xff 0xff 0x00 0x01 0x00 0x00 0x00 0x00
++			0x00 0x00 0x22 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0xe0 0x01
++			0x00 0x00 0x00 0x94 0x40 0xb8 0xc0 0xc9 0x22 0x00 0x00 0x00 0xc0 0xc9 0x22 0x00
++			0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
++			0xc4 0xc4 0xc4 0xc4 0xc4 0xc0 0xc0 0xc2 0xc2 0xc2 0x82 0x84 0x84 0x84 0x00 0x00
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0x05 0x00 0x00 0x00 0xae 0x00 0x00 0x88 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0xff 0x20
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff>;
++
++		/* LED pin 0 drives the front WLAN LED; it is active-low */
++		led {
++			led-active-low;
++		};
++	};
++};
++
++&pcie1 {
++	status = "okay";
++};
++
++&slot1 {
++	wifi@0,0 {
++		/* MT7612E 5 GHz; stock used base MAC + 0xd */
++		compatible = "mediatek,mt76";
++		reg = <0x0000 0 0 0 0>;
++		nvmem-cells = <&macaddr_ri_3e 13>;
++		nvmem-cell-names = "mac-address";
++		mediatek,eeprom-data = /bits/ 8 <
++			0x62 0x76 0x01 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x12 0x76 0xc3 0x14 0x00 0x00
++			0x00 0x00 0x12 0x76 0xc3 0x14 0x00 0x00 0x00 0x00 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0x37 0xd8 0x9d 0x40 0xff 0x7f 0xfd 0x9b 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0x22 0xfd 0x0a 0x00 0xff 0xff 0xb4 0x01 0x00 0x00 0x00 0x00
++			0x00 0x00 0xff 0xd7 0x8c 0x8c 0x00 0x00 0x00 0x8c 0x00 0x00 0x00 0x8c 0xe0 0x01
++			0x00 0x00 0x81 0x57 0x47 0xba 0x00 0x00 0x0a 0x00 0x00 0x00 0x00 0x00 0x0a 0x00
++			0x00 0x00 0x00 0x00 0x0a 0x00 0x00 0x00 0x00 0x1e 0x00 0x00 0x00 0x00 0x1e 0x00
++			0x00 0x00 0x00 0x17 0x00 0x00 0x00 0x00 0x18 0x00 0x00 0x00 0x00 0x13 0x00 0x00
++			0x00 0x00 0x0a 0x00 0x00 0x00 0x00 0x22 0x00 0x00 0x00 0x00 0x20 0x00 0x00 0x00
++			0x00 0x19 0x00 0x00 0x00 0x00 0x19 0x00 0x00 0x00 0x00 0x13 0x00 0x00 0x00 0x00
++			0xc3 0xc3 0x00 0x00 0x00 0x00 0xc0 0xc0 0xc0 0xc0 0xc0 0xc0 0xc0 0xc0 0x00 0x00
++			0x00 0x00 0xc0 0xc0 0xc0 0xc0 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0xc0 0x83
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0x0f 0x09 0x0d 0x10 0x00 0x28 0x22 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0x0f 0xca 0x74 0xc5 0xe8 0x07 0x30 0x3d 0x01 0xb0 0x08 0x26 0x00 0x0e 0x04 0x15
++			0x00 0x8a 0x00 0x40 0x00 0x00 0x00 0x08 0x00 0x9d 0x08 0x00 0x12 0xc0 0x00 0x00
++			0x08 0x20 0x04 0x2a 0x90 0x00 0x00 0x24 0x01 0x04 0x54 0x08 0xd0 0xa0 0x28 0x20
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0x08 0xff 0xff 0xff 0xff 0xff 0xff 0x00 0x00
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			0xc0 0x81 0x82 0xc3 0x04 0x45 0x46 0x07 0x08 0x09 0xff 0xff 0xff 0xff 0xff 0xff
++			0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff>;
++	};
++};
+diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
+index ec96a5ac20..021f7fbb4f 100644
+--- a/target/linux/econet/image/en751221.mk
++++ b/target/linux/econet/image/en751221.mk
+@@ -54,6 +54,33 @@ define Device/nokia_g240g-e
+ endef
+ TARGET_DEVICES += nokia_g240g-e
+ 
++# Kernel in a raw TRX at the start of slot A, squashfs + overlay in UBI after
++# it (same scheme as the JioFiber/GS3101 boards), so sysupgrade and persistent
++# settings work. The stock tcboot is a "free bootbase" build (decompAddr
++# 0x80002000 in the factory TRX), hence the jump stub.
++define Device/nokia_g140w-c
++  $(call Device/tclinux-ubi)
++  DEVICE_VENDOR := Nokia
++  DEVICE_MODEL := G-140W-C
++  DEVICE_DTS := en751221_nokia_g140w-c
++  FACTORY_SIZE := 34m
++  TRX_LOADADDR := 0x80002000
++  KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \
++    kernel-trx
++  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
++endef
++TARGET_DEVICES += nokia_g140w-c
++
++define Device/nokia_g140w-c-bringup
++  DEVICE_VENDOR := Nokia
++  DEVICE_MODEL := G-140W-C
++  DEVICE_VARIANT := bring-up (RAM boot only)
++  DEVICE_DTS := en751221_nokia_g140w-c-bringup
++  IMAGES :=
++  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
++endef
++TARGET_DEVICES += nokia_g140w-c-bringup
++
+ define Device/smartfiber_xp8421-b
+   DEVICE_VENDOR := SmartFiber
+   DEVICE_MODEL := XP8421-B
+-- 
+2.43.0
+

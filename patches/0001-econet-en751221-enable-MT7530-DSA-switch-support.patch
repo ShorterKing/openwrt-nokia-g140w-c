@@ -1,19 +1,18 @@
-From e83db7614542b8700a681e50eb7cf49337e1aafb Mon Sep 17 00:00:00 2001
+From 158ae92e3c40582f1ddcf50548872e3c16938dd5 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 1/2] econet: en751221: enable MT7530 DSA switch support
+Subject: [PATCH 1/4] econet: en751221: enable MT7530 DSA switch support
 
-The EN751221 family has an MT7530-class switch at 0x1fb58000, which the
-mainline mt7530-mmio driver handles through the "econet,en7528-switch"
-compatible. Enable DSA, the MMIO switch driver, the MTK tag and the
-MediaTek GE PHY driver so boards can expose their sockets as DSA user
-ports.
+The EN7526G in the EN751221 family carries an MT7530 as a multi-chip
+module, on the MDIO bus of the SoC's on-die switch. Enable DSA, the
+MDIO-attached MT7530 driver, the MTK tag and the MediaTek GE PHY driver,
+so that boards can expose their sockets as DSA user ports.
 ---
  target/linux/econet/en751221/config-6.18 | 17 +++++++++++++++++
  1 file changed, 17 insertions(+)
 
 diff --git a/target/linux/econet/en751221/config-6.18 b/target/linux/econet/en751221/config-6.18
-index 30f52000ce..668635ae35 100644
+index 30f52000ce..280b0e47c6 100644
 --- a/target/linux/econet/en751221/config-6.18
 +++ b/target/linux/econet/en751221/config-6.18
 @@ -49,8 +49,10 @@ CONFIG_ECONET=y
@@ -33,7 +32,7 @@ index 30f52000ce..668635ae35 100644
  CONFIG_LZO_DECOMPRESS=y
 +CONFIG_MDIO_BUS=y
 +CONFIG_MEDIATEK_GE_PHY=y
-+CONFIG_MEDIATEK_GE_SOC_PHY=y
++# CONFIG_MEDIATEK_GE_SOC_PHY is not set
  CONFIG_MFD_SYSCON=y
  CONFIG_MIGRATION=y
  CONFIG_MIPS=y
@@ -47,8 +46,8 @@ index 30f52000ce..668635ae35 100644
 +CONFIG_NET_DEVLINK=y
 +CONFIG_NET_DSA=y
 +CONFIG_NET_DSA_MT7530=y
-+# CONFIG_NET_DSA_MT7530_MDIO is not set
-+CONFIG_NET_DSA_MT7530_MMIO=y
++CONFIG_NET_DSA_MT7530_MDIO=y
++# CONFIG_NET_DSA_MT7530_MMIO is not set
 +CONFIG_NET_DSA_TAG_MTK=y
  CONFIG_NET_EGRESS=y
  CONFIG_NET_FLOW_LIMIT=y

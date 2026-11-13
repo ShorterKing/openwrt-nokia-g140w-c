@@ -1,0 +1,262 @@
+From aa6ce15574a52bd152b7e4e718367f6761e1a043 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:53:51 +0000
+Subject: [PATCH 3/4] econet: en751221: support the MT7530 module of the
+ EN7526G
+
+The MT7530 module of the EN7526G is linked over TRGMII to the on-die
+switch. The bootloader sets the link up (200MHz clock, its own pad tuning
+and trap settings), and the module has no reset line. The internal reset
+in the mt7530 driver clears that set-up, and the driver would then
+program the clock and pad tuning for an MT7621 or a standalone MT7530.
+
+Add a kernel patch with an "econet,en751221-mt7530" compatible, which
+saves the bootloader's TRGMII set-up before the internal reset and puts it
+back afterwards.
+---
+ ...rt-the-econet-en751221-mt7530-module.patch | 233 ++++++++++++++++++
+ 1 file changed, 233 insertions(+)
+ create mode 100644 target/linux/econet/patches-6.18/720-net-dsa-mt7530-support-the-econet-en751221-mt7530-module.patch
+
+diff --git a/target/linux/econet/patches-6.18/720-net-dsa-mt7530-support-the-econet-en751221-mt7530-module.patch b/target/linux/econet/patches-6.18/720-net-dsa-mt7530-support-the-econet-en751221-mt7530-module.patch
+new file mode 100644
+index 0000000000..e184ba262f
+--- /dev/null
++++ b/target/linux/econet/patches-6.18/720-net-dsa-mt7530-support-the-econet-en751221-mt7530-module.patch
+@@ -0,0 +1,233 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] net: dsa: mt7530: support the EcoNet EN751221 MT7530 module
++
++The EcoNet EN7526G (EN751221 family) carries an MT7530 as a multi-chip
++module. It sits at address 31 on the MDIO bus of the SoC's on-die switch,
++and its port 6 is linked over TRGMII to port 5 of that switch.
++
++The bootloader brings the TRGMII link up with a 200MHz clock, its own pad
++tuning and its own trap settings, and the module has no reset line, so that
++set-up is still in place when Linux starts. On a Nokia G-140W-C, the
++internal reset in mt7530_setup() clears the trap, port 6 mode and TRGMII
++pad registers (but not the PLL), and the link stays down until they are
++written back. The driver would also program the PLL for an MT7621 or a
++standalone MT7530 (125 or 250MHz) and apply its own pad tuning.
++
++Add an "econet,en751221-mt7530" compatible that saves those registers
++before the internal reset and writes back the ones that changed, skips the
++pad tuning, and only programs the PLL (at 200MHz) if it is not already
++running at that rate.
++
++Tested on a Nokia G-140W-C: all four LAN ports pass traffic, with LAN4 as
++a separate WAN port.
++---
++--- a/drivers/net/dsa/mt7530-mdio.c
+++++ b/drivers/net/dsa/mt7530-mdio.c
++@@ -138,6 +138,7 @@ mt7531_create_sgmii(struct mt7530_priv *
++ static const struct of_device_id mt7530_of_match[] = {
++ 	{ .compatible = "mediatek,mt7621", .data = &mt753x_table[ID_MT7621], },
++ 	{ .compatible = "mediatek,mt7530", .data = &mt753x_table[ID_MT7530], },
+++	{ .compatible = "econet,en751221-mt7530", .data = &mt753x_table[ID_MT7530], },
++ 	{ .compatible = "mediatek,mt7531", .data = &mt753x_table[ID_MT7531], },
++ 	{ /* sentinel */ },
++ };
++@@ -180,6 +181,7 @@ mt7530_probe(struct mdio_device *mdiodev
++ 	 * through syscon provides in the case of MCM.
++ 	 */
++ 	priv->mcm = of_property_read_bool(dn, "mediatek,mcm");
+++	priv->econet_mcm = of_device_is_compatible(dn, "econet,en751221-mt7530");
++ 	if (priv->mcm) {
++ 		dev_info(&mdiodev->dev, "MT7530 adapts as multi-chip module\n");
++ 
++--- a/drivers/net/dsa/mt7530.c
+++++ b/drivers/net/dsa/mt7530.c
++@@ -150,6 +150,40 @@ core_clear(struct mt7530_priv *priv, u32
++ 	core_rmw(priv, reg, val, 0);
++ }
++ 
+++static u32
+++core_read(struct mt7530_priv *priv, u32 reg)
+++{
+++	struct mii_bus *bus = priv->bus;
+++	int ret;
+++
+++	mt7530_mutex_lock(priv);
+++
+++	ret = bus->write(bus, MT753X_CTRL_PHY_ADDR(priv->mdiodev->addr),
+++			 MII_MMD_CTRL, MDIO_MMD_VEND2);
+++	if (ret < 0)
+++		goto err;
+++
+++	ret = bus->write(bus, MT753X_CTRL_PHY_ADDR(priv->mdiodev->addr),
+++			 MII_MMD_DATA, reg);
+++	if (ret < 0)
+++		goto err;
+++
+++	ret = bus->write(bus, MT753X_CTRL_PHY_ADDR(priv->mdiodev->addr),
+++			 MII_MMD_CTRL, MDIO_MMD_VEND2 | MII_MMD_CTRL_NOINCR);
+++	if (ret < 0)
+++		goto err;
+++
+++	ret = bus->read(bus, MT753X_CTRL_PHY_ADDR(priv->mdiodev->addr),
+++			MII_MMD_DATA);
+++err:
+++	if (ret < 0)
+++		dev_err(&bus->dev, "failed to read mmd register\n");
+++
+++	mt7530_mutex_unlock(priv);
+++
+++	return ret < 0 ? 0 : ret;
+++}
+++
++ static int
++ mt7530_mii_write(struct mt7530_priv *priv, u32 reg, u32 val)
++ {
++@@ -365,6 +399,47 @@ mt753x_preferred_default_local_cpu_port(
++ 	return NULL;
++ }
++ 
+++/* The MT7530 module of the EcoNet EN751221 family (EN7526G) is linked to the
+++ * SoC's on-die switch over TRGMII, which the bootloader brings up with a
+++ * 200MHz clock, its own pad tuning and its own trap settings. The module has
+++ * no reset line, so that set-up is still there when Linux starts. Keep it:
+++ * the internal reset in mt7530_setup() clears the trap, port 6 and pad
+++ * registers below (but not the PLL), and the link stays down until they are
+++ * written back. Reprogramming the PLL would also glitch the clock seen by the
+++ * other end. The order is the one tested on hardware.
+++ */
+++static const u32 mt7530_econet_boot_regs[] = {
+++	MT753X_MTRAP,
+++	MT7530_IO_DRV_CR,
+++	MT7530_P6ECR,
+++	MT7530_TRGMII_RCK_CTRL,
+++	MT7530_TRGMII_RCK_RTT,
+++	MT7530_TRGMII_RD(0),
+++	MT7530_TRGMII_RD(1),
+++	MT7530_TRGMII_RD(2),
+++	MT7530_TRGMII_RD(3),
+++	MT7530_TRGMII_RD(4),
+++	MT7530_TRGMII_TXCTRL,
+++	MT7530_TRGMII_TD_ODT(0),
+++	MT7530_TRGMII_TD_ODT(1),
+++	MT7530_TRGMII_TD_ODT(2),
+++	MT7530_TRGMII_TD_ODT(3),
+++	MT7530_TRGMII_TD_ODT(4),
+++	MT7530_TRGMII_TCK_CTRL,
+++};
+++
+++static bool
+++mt7530_econet_trgmii_ready(struct mt7530_priv *priv)
+++{
+++	u32 xtal = mt7530_read(priv, MT753X_MTRAP) & MT7530_XTAL_MASK;
+++	u32 ncpo1 = xtal == MT7530_XTAL_40MHZ ? 0x0a00 : 0x1000;
+++
+++	return (mt7530_read(priv, MT7530_P6ECR) & P6_INTF_MODE_MASK) ==
+++		P6_INTF_MODE(1) &&
+++	       core_read(priv, CORE_PLL_GROUP5) == ncpo1 &&
+++	       (core_read(priv, CORE_TRGMII_GSW_CLK_CG) & REG_TRGMIICK_EN);
+++}
+++
++ /* Setup port 6 interface mode and TRGMII TX circuit */
++ static void
++ mt7530_setup_port6(struct dsa_switch *ds, phy_interface_t interface)
++@@ -372,6 +447,10 @@ mt7530_setup_port6(struct dsa_switch *ds
++ 	struct mt7530_priv *priv = ds->priv;
++ 	u32 ncpo1, ssc_delta, xtal;
++ 
+++	if (priv->econet_mcm && interface == PHY_INTERFACE_MODE_TRGMII &&
+++	    mt7530_econet_trgmii_ready(priv))
+++		return;
+++
++ 	/* Disable the MT7530 TRGMII clocks */
++ 	core_clear(priv, CORE_TRGMII_GSW_CLK_CG, REG_TRGMIICK_EN);
++ 
++@@ -390,7 +469,13 @@ mt7530_setup_port6(struct dsa_switch *ds
++ 	else
++ 		ssc_delta = 0x87;
++ 
++-	if (priv->id == ID_MT7621) {
+++	if (priv->econet_mcm) {
+++		/* PLL frequency: 200MHz: 1.6Gbit */
+++		if (xtal == MT7530_XTAL_40MHZ)
+++			ncpo1 = 0x0a00;
+++		if (xtal == MT7530_XTAL_25MHZ)
+++			ncpo1 = 0x1000;
+++	} else if (priv->id == ID_MT7621) {
++ 		/* PLL frequency: 125MHz: 1.0GBit */
++ 		if (xtal == MT7530_XTAL_40MHZ)
++ 			ncpo1 = 0x0640;
++@@ -2401,6 +2486,7 @@ out:
++ static int
++ mt7530_setup(struct dsa_switch *ds)
++ {
+++	u32 boot_regs[ARRAY_SIZE(mt7530_econet_boot_regs)];
++ 	struct mt7530_priv *priv = ds->priv;
++ 	struct device_node *dn = NULL;
++ 	struct device_node *phy_node;
++@@ -2487,19 +2573,39 @@ mt7530_setup(struct dsa_switch *ds)
++ 		return -EINVAL;
++ 	}
++ 
+++	if (priv->econet_mcm)
+++		for (i = 0; i < ARRAY_SIZE(mt7530_econet_boot_regs); i++)
+++			boot_regs[i] = mt7530_read(priv,
+++						   mt7530_econet_boot_regs[i]);
+++
++ 	/* Reset the switch through internal reset */
++ 	mt7530_write(priv, MT7530_SYS_CTRL,
++ 		     SYS_CTRL_PHY_RST | SYS_CTRL_SW_RST |
++ 		     SYS_CTRL_REG_RST);
++ 
++-	/* Lower Tx driving for TRGMII path */
++-	for (i = 0; i < NUM_TRGMII_CTRL; i++)
++-		mt7530_write(priv, MT7530_TRGMII_TD_ODT(i),
++-			     TD_DM_DRVP(8) | TD_DM_DRVN(8));
++-
++-	for (i = 0; i < NUM_TRGMII_CTRL; i++)
++-		mt7530_rmw(priv, MT7530_TRGMII_RD(i),
++-			   RD_TAP_MASK, RD_TAP(16));
+++	if (priv->econet_mcm) {
+++		/* Let the reset settle, then put back the bootloader's set-up.
+++		 * The trap bits for ports 5 and 6 are adjusted again below and
+++		 * when the ports are enabled.
+++		 */
+++		usleep_range(10000, 11000);
+++
+++		for (i = 0; i < ARRAY_SIZE(mt7530_econet_boot_regs); i++) {
+++			u32 reg = mt7530_econet_boot_regs[i];
+++
+++			if (mt7530_read(priv, reg) != boot_regs[i])
+++				mt7530_write(priv, reg, boot_regs[i]);
+++		}
+++	} else {
+++		/* Lower Tx driving for TRGMII path */
+++		for (i = 0; i < NUM_TRGMII_CTRL; i++)
+++			mt7530_write(priv, MT7530_TRGMII_TD_ODT(i),
+++				     TD_DM_DRVP(8) | TD_DM_DRVN(8));
+++
+++		for (i = 0; i < NUM_TRGMII_CTRL; i++)
+++			mt7530_rmw(priv, MT7530_TRGMII_RD(i),
+++				   RD_TAP_MASK, RD_TAP(16));
+++	}
++ 
++ 	/* Allow modifying the trap and directly access PHY registers via the
++ 	 * MDIO bus the switch is on.
++--- a/drivers/net/dsa/mt7530.h
+++++ b/drivers/net/dsa/mt7530.h
++@@ -868,6 +868,8 @@ struct mt753x_info {
++  * @reset:		The descriptor for GPIO line tied to its reset pin
++  * @mcm:		Flag for distinguishing if standalone IC or module
++  *			coupling
+++ * @econet_mcm:	MT7530 module of the EcoNet EN751221 family, whose TRGMII
+++ *			link is set up by the bootloader
++  * @ports:		Holding the state among ports
++  * @reg_mutex:		The lock for protecting among process accessing
++  *			registers
++@@ -894,6 +896,7 @@ struct mt7530_priv {
++ 	const struct mt753x_info *info;
++ 	unsigned int		id;
++ 	bool			mcm;
+++	bool			econet_mcm;
++ 	enum mt7530_p5_mode	p5_mode;
++ 	bool			p5_sgmii;
++ 	u8			mirror_rx;
+-- 
+2.43.0
+

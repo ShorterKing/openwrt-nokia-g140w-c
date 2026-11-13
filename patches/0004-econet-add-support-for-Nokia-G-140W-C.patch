@@ -1,7 +1,7 @@
-From f9f784a0ea0903893e2afa04963e2dfb9b54203b Mon Sep 17 00:00:00 2001
+From d5bd4ffc104568a534f0c83adcb8a24418a1bf7c Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 2/2] econet: add support for Nokia G-140W-C
+Subject: [PATCH 4/4] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
 dual-band Wi-Fi, supplied by Airtel in India.
@@ -10,7 +10,8 @@ Hardware:
  - SoC: EcoNet EN7526G (EN751221 family), MIPS 34Kc, 2 threads, 900 MHz
  - RAM: 512 MiB DDR3 (Linux can use the first 0x1b800000 bytes)
  - Flash: 256 MiB SPI-NAND (Winbond W25M02GV) with the vendor BMT
- - Ethernet: 4x 1 GbE on switch ports 1-4
+ - Ethernet: 4x 1 GbE on ports 1-4 of the MT7530 module in the SoC,
+   linked over TRGMII to the on-die switch
  - Wi-Fi 2.4 GHz: MT7592 (mt7603) on PCIe RC0
  - Wi-Fi 5 GHz: MT7612E (mt76x2) on PCIe RC1
  - USB: xHCI
@@ -31,8 +32,9 @@ writes slot A: it turns off BMT remapping there and renames the UBI
 area so the UBI auto-attach doesn't read it. It also checks the vendor
 BMT pool size.
 
-Installation: not final yet. So far the images have only been tested by
-loading the initramfs kernel through the bootloader's XMODEM command.
+Tested by loading the initramfs kernel through the bootloader's XMODEM
+command: Wi-Fi on both bands, LAN1-LAN3 bridged and LAN4 as WAN with
+DHCP. Installation: not final yet.
 ---
  .../econet/base-files/etc/board.d/01_leds     |   6 +
  .../econet/base-files/etc/board.d/02_network  |  10 +
@@ -40,9 +42,9 @@ loading the initramfs kernel through the bootloader's XMODEM command.
  .../linux/econet/base-files/sbin/en75_chboot  |  13 +
  .../dts/en751221_nokia_g140w-c-bringup.dts    |  34 ++
  .../econet/dts/en751221_nokia_g140w-c.dts     |  10 +
- .../econet/dts/en751221_nokia_g140w-c.dtsi    | 469 ++++++++++++++++++
+ .../econet/dts/en751221_nokia_g140w-c.dtsi    | 428 ++++++++++++++++++
  target/linux/econet/image/en751221.mk         |  32 ++
- 8 files changed, 578 insertions(+), 2 deletions(-)
+ 8 files changed, 537 insertions(+), 2 deletions(-)
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
@@ -198,10 +200,10 @@ index 0000000000..c073bfb375
 +};
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
 new file mode 100644
-index 0000000000..5a242e5c1f
+index 0000000000..115b21e1c7
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,428 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +/*
 + * Nokia G-140W-C (EcoNet EN7526G, 512 MiB DDR3, 256 MiB SPI-NAND W25M02GV,
@@ -559,117 +561,76 @@ index 0000000000..5a242e5c1f
 +	};
 +};
 +
-+/ {
-+	/*
-+	 * Integrated MT7530-family switch, driven by the mainline mt7530-mmio
-+	 * DSA driver. Verified against the stock eth.ko: PHYs are reached
-+	 * through the indirect access register at 0x701c with the same command
-+	 * layout as mt7531_ind_c22_phy_read().
-+	 *
-+	 * Stock firmware programs per-port registers 0x2[1-4]1c for the four
-+	 * LAN sockets (user ports 1-4, CPU port 6) and reads MT7530 GPHY IDs
-+	 * (0x03a29412) at phy[1..4], so PHY address = port number here (EN7528
-+	 * uses 9-12 instead). Stock /proc/tc3162/eth_portmap maps LAN1..LAN4 to
-+	 * switch ports 1..4 with port_reverse = 0, so lanN = printed "LANN".
-+	 */
-+	gsw: ethernet-switch@1fb58000 {
-+		compatible = "econet,en7528-switch";
-+		reg = <0x1fb58000 0x8000>;
-+		resets = <&scuclk EN751221_GSW_RST>;
++/*
++ * The LAN sockets are on the MT7530 multi-chip module inside the EN7526G
++ * (CREV 0x75300001, MDIO address 31), not on the on-die switch at
++ * 0x1fb58000. The MT7530's port 6 is linked over TRGMII to port 5 of the
++ * on-die switch, which econet-eth keeps as a dumb switch between it and the
++ * frame engine (port 6). The MDIO bus is the on-die switch's PHY access
++ * controller; the on-die switch's own PHYs at 8-11 are not wired to sockets.
++ *
++ * LAN1-LAN4 are MT7530 ports 1-4 (LAN2 and LAN4 checked with the port
++ * counters, matching the stock port map). Port 0 has a PHY but no socket.
++ *
++ * There is no reset line for the module, and the bootloader sets up the
++ * TRGMII link (200 MHz clock, its own pad tuning). The econet compatible
++ * makes the mt7530 driver keep that set-up.
++ */
++&switch0 {
++	compatible = "econet,en751221-mt7530", "mediatek,mt7530";
++	/delete-property/ mediatek,mcm;
++	/delete-property/ reset-names;
++
++	ports {
++		port@1 {
++			status = "okay";
++			label = "lan1";
++			phy-mode = "gmii";
++			phy-handle = <&swphy1>;
++		};
++
++		port@2 {
++			status = "okay";
++			label = "lan2";
++			phy-mode = "gmii";
++			phy-handle = <&swphy2>;
++		};
++
++		port@3 {
++			status = "okay";
++			label = "lan3";
++			phy-mode = "gmii";
++			phy-handle = <&swphy3>;
++		};
++
++		port@4 {
++			reg = <4>;
++			label = "lan4";
++			phy-mode = "gmii";
++			phy-handle = <&swphy4>;
++		};
++	};
++
++	mdio {
 +		#address-cells = <1>;
 +		#size-cells = <0>;
 +
-+		ethernet-ports {
-+			#address-cells = <1>;
-+			#size-cells = <0>;
-+
-+			ethernet-port@1 {
-+				reg = <1>;
-+				label = "lan1";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy1>;
-+			};
-+
-+			ethernet-port@2 {
-+				reg = <2>;
-+				label = "lan2";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy2>;
-+			};
-+
-+			ethernet-port@3 {
-+				reg = <3>;
-+				label = "lan3";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy3>;
-+			};
-+
-+			ethernet-port@4 {
-+				reg = <4>;
-+				label = "lan4";
-+				phy-mode = "internal";
-+				phy-handle = <&gsw_phy4>;
-+			};
-+
-+			ethernet-port@6 {
-+				reg = <6>;
-+				ethernet = <&gmac0>;
-+				phy-mode = "internal";
-+
-+				fixed-link {
-+					speed = <1000>;
-+					full-duplex;
-+					pause;
-+				};
-+			};
++		swphy1: ethernet-phy@1 {
++			reg = <1>;
 +		};
 +
-+		mdio {
-+			#address-cells = <1>;
-+			#size-cells = <0>;
++		swphy2: ethernet-phy@2 {
++			reg = <2>;
++		};
 +
-+			gsw_phy1: ethernet-phy@1 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <1>;
-+			};
++		swphy3: ethernet-phy@3 {
++			reg = <3>;
++		};
 +
-+			gsw_phy2: ethernet-phy@2 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <2>;
-+			};
-+
-+			gsw_phy3: ethernet-phy@3 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <3>;
-+			};
-+
-+			gsw_phy4: ethernet-phy@4 {
-+				compatible = "ethernet-phy-ieee802.3-c22";
-+				reg = <4>;
-+			};
++		swphy4: ethernet-phy@4 {
++			reg = <4>;
 +		};
 +	};
-+};
-+
-+/*
-+ * Hand the switch half of the register window and the GSW reset to the
-+ * switch driver; econet-eth then acts as a pure DSA conduit (same split as
-+ * en7528.dtsi).
-+ */
-+&ethernet {
-+	reg = <0x1fb50000 0x8000>;
-+	resets = <&scuclk EN751221_FE_RST>,
-+		 <&scuclk EN751221_FE_QDMA1_RST>,
-+		 <&scuclk EN751221_FE_QDMA2_RST>,
-+		 <&scuclk EN751221_XPON_MAC_RST>,
-+		 <&scuclk EN751221_XPON_PHY_RST>;
-+	reset-names = "fe", "qdma0", "qdma1", "xpon-mac", "xpon-phy";
-+
-+	/delete-node/ mdio-bus;
-+};
-+
-+&gmac0 {
-+	phy-mode = "internal";
 +};
 diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
 index ec96a5ac20..b354e8b11e 100644

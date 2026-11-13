@@ -57,22 +57,25 @@ OpenWrt boots on the serial console. Press Enter to get a root shell.
 
 ## After booting
 
+- Connect a computer to **LAN1, LAN2 or LAN3**. **LAN4 is the WAN port**:
+  plug it into your main router or modem, and OpenWrt gets an address there
+  by DHCP.
 - LuCI is at `http://192.168.1.1`. Log in as `root` with an empty password.
-- In the current build the Ethernet ports don't pass traffic yet (see the
-  README's known issues), so use Wi-Fi. It's off by default; turn it on from
-  the serial console, with your own country code and password:
-
-  ```
-  for r in 0 1; do uci set wireless.radio$r.country=IN; uci set wireless.default_radio$r.encryption=psk2; uci set wireless.default_radio$r.key='your-password'; uci set wireless.default_radio$r.disabled=0; done; uci commit wireless; wifi reload
-  ```
-
-  Both bands then broadcast `OpenWrt`.
-- If your home network also uses `192.168.1.x`, move the router's LAN first:
+- If your main network also uses `192.168.1.x`, move the router's LAN first,
+  from the serial console:
 
   ```
   uci set network.lan.ipaddr='192.168.50.1'; uci set network.lan.netmask='255.255.255.0'; uci commit network; service network restart
   ```
 
   Set the netmask together with the address: without it the LAN ends up as a
-  /32 and DHCP refuses to start.
+  /32 and DHCP refuses to start. LuCI then moves to `http://192.168.50.1`.
+- Wi-Fi is off by default. To turn it on from the serial console, with your
+  own country code and password:
+
+  ```
+  for r in 0 1; do uci set wireless.radio$r.country=IN; uci set wireless.default_radio$r.encryption=psk2; uci set wireless.default_radio$r.key='your-password'; uci set wireless.default_radio$r.disabled=0; done; uci commit wireless; wifi reload
+  ```
+
+  Both bands then broadcast `OpenWrt`.
 - Settings are lost on power-off; this is a RAM session only.

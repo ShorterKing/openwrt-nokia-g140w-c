@@ -1,0 +1,225 @@
+From 8ecb95acb1ea2ecf28d041b6cfe85de90a4c5cd1 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:53:51 +0000
+Subject: [PATCH 2/4] econet-eth: add an MDIO bus
+
+The PHY indirect access controller of the on-die switch is the SoC's MDIO
+master. Besides the on-die switch's own PHYs, it reaches the MT7530
+multi-chip module of the EN7526G, which carries the LAN ports.
+
+Add a patch that registers the "mdio-bus" child node of the ethernet node
+as an MDIO bus using that controller, so that the MT7530 can be managed by
+the mt7530 DSA driver with econet-eth as its conduit.
+---
+ package/kernel/econet-eth/Makefile            |   2 +-
+ .../econet-eth/patches/100-add-mdio-bus.patch | 185 ++++++++++++++++++
+ 2 files changed, 186 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/100-add-mdio-bus.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index f3c7c37d7e..28edec1abd 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/100-add-mdio-bus.patch b/package/kernel/econet-eth/patches/100-add-mdio-bus.patch
+new file mode 100644
+index 0000000000..425883f882
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/100-add-mdio-bus.patch
+@@ -0,0 +1,185 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] add an MDIO bus for the switch's PHY access controller
++
++The on-die switch's PHY indirect access controller is the SoC's MDIO
++master. Besides the switch's own PHYs it reaches the external MDIO pins,
++where the EN7526G has an MT7530 multi-chip module that carries the LAN
++ports, at address 31.
++
++Register an "mdio-bus" child node as an MDIO bus using that controller, so
++that the MT7530 can be managed by the mt7530 DSA driver with this device as
++its conduit. The bus is registered after the GDM ports so the switch finds
++its conduit right away, and it is unregistered before them on removal.
++
++---
++--- a/econet_eth.c
+++++ b/econet_eth.c
++@@ -33,6 +33,10 @@
++  */
++ #include <linux/skbuff.h>
++ #include <linux/etherdevice.h>
+++#include <linux/bitfield.h>
+++#include <linux/iopoll.h>
+++#include <linux/of_mdio.h>
+++#include <linux/phy.h>
++ #include <net/dsa.h>
++ #include <linux/platform_device.h>
++ #include <linux/reset.h>
++@@ -88,6 +92,24 @@
++ #define SWITCH_MAC_HI			0x30e8
++ #define SWITCH_MAC_LO			0x30e4
++ 
+++/*
+++ * PHY indirect access controller of the on-die switch. It is the SoC's MDIO
+++ * master: besides the on-die switch's own PHYs it reaches whatever sits on
+++ * the external MDIO pins, such as the MT7530 multi-chip module of the
+++ * EN7526G that carries the LAN ports.
+++ */
+++#define EN75_PHY_IAC			0x701c
+++#define  EN75_PHY_ACS_ST		BIT(31)
+++#define  EN75_MDIO_REG_ADDR		GENMASK(29, 25)
+++#define  EN75_MDIO_PHY_ADDR		GENMASK(24, 20)
+++#define  EN75_MDIO_CMD			GENMASK(19, 18)
+++#define  EN75_MDIO_ST			GENMASK(17, 16)
+++#define  EN75_MDIO_RW_DATA		GENMASK(15, 0)
+++#define    EN75_MDIO_CMD_WRITE		1
+++#define    EN75_MDIO_CMD_READ		2
+++#define    EN75_MDIO_ST_CL22		1
+++#define EN75_MDIO_TIMEOUT_US		100000
+++
++ struct en75_eth_pvt {
++ 	struct en75_eth			pub;
++ 	const struct en75_soc_data	*soc;
++@@ -99,6 +121,7 @@ struct en75_eth_pvt {
++ 	struct en75_debug		*debug;
++ 	/* Whether our register window covers the on-die switch, see probe. */
++ 	bool				has_switch_regs;
+++	struct mii_bus			*mii_bus;
++ };
++ 
++ union gdm_regs {
++@@ -221,6 +244,101 @@ int en75_port_set_macaddr(struct en75_et
++ 	return 0;
++ }
++ 
+++static int en75_mdio_cmd(struct en75_eth_pvt *eth, u32 cmd, u16 *data)
+++{
+++	u32 __iomem *reg = &eth->regs->switch_regs[EN75_PHY_IAC / 4];
+++	u32 val;
+++	int err;
+++
+++	err = readl_poll_timeout(reg, val, !(val & EN75_PHY_ACS_ST), 10,
+++				 EN75_MDIO_TIMEOUT_US);
+++	if (err)
+++		return err;
+++
+++	writel(cmd | EN75_PHY_ACS_ST, reg);
+++
+++	err = readl_poll_timeout(reg, val, !(val & EN75_PHY_ACS_ST), 10,
+++				 EN75_MDIO_TIMEOUT_US);
+++	if (err)
+++		return err;
+++
+++	if (data)
+++		*data = FIELD_GET(EN75_MDIO_RW_DATA, val);
+++
+++	return 0;
+++}
+++
+++static int en75_mdio_read(struct mii_bus *bus, int addr, int regnum)
+++{
+++	u16 data;
+++	int err;
+++
+++	err = en75_mdio_cmd(bus->priv,
+++			    FIELD_PREP(EN75_MDIO_REG_ADDR, regnum) |
+++			    FIELD_PREP(EN75_MDIO_PHY_ADDR, addr) |
+++			    FIELD_PREP(EN75_MDIO_CMD, EN75_MDIO_CMD_READ) |
+++			    FIELD_PREP(EN75_MDIO_ST, EN75_MDIO_ST_CL22),
+++			    &data);
+++
+++	return err ? err : data;
+++}
+++
+++static int en75_mdio_write(struct mii_bus *bus, int addr, int regnum,
+++			   u16 val)
+++{
+++	return en75_mdio_cmd(bus->priv,
+++			     FIELD_PREP(EN75_MDIO_REG_ADDR, regnum) |
+++			     FIELD_PREP(EN75_MDIO_PHY_ADDR, addr) |
+++			     FIELD_PREP(EN75_MDIO_CMD, EN75_MDIO_CMD_WRITE) |
+++			     FIELD_PREP(EN75_MDIO_ST, EN75_MDIO_ST_CL22) |
+++			     FIELD_PREP(EN75_MDIO_RW_DATA, val),
+++			     NULL);
+++}
+++
+++/*
+++ * Register the "mdio-bus" child node, if there is one. This is done after the
+++ * GDM ports are registered so that a DSA switch on the bus finds its conduit
+++ * right away.
+++ */
+++static int en75_mdio_init(struct en75_eth_pvt *eth)
+++{
+++	struct device *dev = eth->pub.dev;
+++	struct device_node *np;
+++	struct mii_bus *bus;
+++	int err;
+++
+++	np = of_get_available_child_by_name(dev->of_node, "mdio-bus");
+++	if (!np)
+++		return 0;
+++
+++	if (!eth->has_switch_regs) {
+++		dev_warn(dev, "mdio-bus needs the switch registers, ignoring it\n");
+++		of_node_put(np);
+++		return 0;
+++	}
+++
+++	bus = devm_mdiobus_alloc(dev);
+++	if (!bus) {
+++		of_node_put(np);
+++		return -ENOMEM;
+++	}
+++
+++	bus->name = "econet-mdio";
+++	bus->read = en75_mdio_read;
+++	bus->write = en75_mdio_write;
+++	bus->priv = eth;
+++	bus->parent = dev;
+++	snprintf(bus->id, MII_BUS_ID_SIZE, "%s-mii", dev_name(dev));
+++
+++	err = of_mdiobus_register(bus, np);
+++	of_node_put(np);
+++	if (err)
+++		return dev_err_probe(dev, err, "failed to register MDIO bus\n");
+++
+++	eth->mii_bus = bus;
+++	return 0;
+++}
+++
++ static int en75_init_port(struct en75_eth_pvt *eth, struct device_node *np)
++ {
++ 	const __be32 *id_ptr = of_get_property(np, "reg", NULL);
++@@ -290,6 +408,11 @@ static void en75_remove(struct platform_
++ 	if (!eth)
++ 		return;
++ 
+++	if (eth->mii_bus) {
+++		mdiobus_unregister(eth->mii_bus);
+++		eth->mii_bus = NULL;
+++	}
+++
++ 	en75_debugfs_exit(eth->debug);
++ 
++ 	for (i = 0; i < ARRAY_SIZE(eth->qdma); i++)
++@@ -416,6 +539,10 @@ static int en75_probe(struct platform_de
++ 		en75_wreg(EN75_MFC_CONFIG, &regs->switch_regs[MT753X_MFC / 4]);
++ 	}
++ 
+++	err = en75_mdio_init(eth);
+++	if (err)
+++		goto error;
+++
++ 	return 0;
++ 
++ error:
+-- 
+2.43.0
+

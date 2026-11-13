@@ -11,7 +11,7 @@ tests from the bootloader and from RAM-booted OpenWrt.
 | SoC | EcoNet EN7526G (EN751221 family), MIPS 34Kc, 2 threads (VPEs), 900 MHz, big-endian |
 | RAM | 512 MiB DDR3-1066. Linux can use `0x0`–`0x1b800000` (440 MiB) |
 | Flash | 256 MiB Winbond W25M02GV SPI-NAND (two dies), 128 KiB blocks, 2 KiB pages |
-| Switch | MT7530-class at `0x1fb58000`; CPU port 6, user ports 1–4 |
+| Switch | MT7530 in the SoC package (LAN1–LAN4), linked over TRGMII to the SoC's on-die switch |
 | Ethernet PHYs | MT7530 GPHYs (ID `0x03a29412`) at MDIO addresses 1–4 |
 | PCIe RC0 | MT7592 (`14c3:7603`), 2.4 GHz, `mt7603` driver |
 | PCIe RC1 (Gen2) | MT7612E (`14c3:7662`), 5 GHz, `mt76x2e` driver |
@@ -19,28 +19,68 @@ tests from the bootloader and from RAM-booted OpenWrt.
 
 ## Switch
 
+The Ethernet ports are on an **MT7530** in the SoC package (a multi-chip
+module, CREV `0x75300001`), not on the SoC's own on-die switch. The two
+switches are chained:
+
+```
+frame engine -- port 6 [on-die switch] port 5 == TRGMII == port 6 [MT7530] ports 1-4 -- LAN1-LAN4
+```
+
 | Item | Details |
 |---|---|
-| Base address | `0x1fb58000` (register window `0x8000`) |
-| Reset | SCU register `0x1fb00834`, bit 23 |
-| Ports | 1–4 = LAN1–LAN4 (PHYs at MDIO 1–4), 6 = CPU (internal 1 Gbit/s link to the frame engine) |
-| Port control / status | `0x3000 + port × 0x100` (PMCR) / `0x3008 + port × 0x100` (PMSR) |
-| Packet counters (MIB) | `0x4000 + port × 0x100`, see below |
+| MT7530 | MDIO address 31. Ports 1–4 = LAN1–LAN4, with their PHYs at MDIO 1–4 (ID `0x03a29412`). Port 0 has a PHY (MDIO 0) but no socket |
+| On-die switch | Registers at `0x1fb58000`, reset at SCU register `0x1fb00834` bit 23. Port 6 goes to the frame engine, port 5 to the MT7530. Its own PHYs (MDIO 8–11) have no sockets |
+| MDIO master | The on-die switch's PHY indirect access controller at `0x1fb5f01c`, with the same command layout as the MT7531's |
+| In OpenWrt | `econet-eth` keeps the on-die switch as a dumb switch and provides the MDIO bus. The mainline `mt7530` DSA driver runs the MT7530 as `lan1`–`lan4` |
 
-Counter offsets within a port's MIB block: TX drop `0x00`, TX unicast
+The stock port map agrees: LAN1–LAN4 are ports 1–4, with no reversal.
+
+### TRGMII link
+
+The bootloader sets up the link between the two switches, and the MT7530
+has no reset line, so Linux starts with that set-up in place. On the
+reference unit (25 MHz crystal) it is:
+
+| Register | Value | Meaning |
+|---|---|---|
+| Core `0x404` | `0x1000` | PLL: 200 MHz TRGMII clock |
+| `0x7804` (MTRAP) | `0x17e8f` | |
+| `0x7810` (IO_DRV_CR) | `0x10022` | |
+| `0x7830` (P6ECR) | `0x1` | Port 6 in TRGMII mode |
+| `0x7a00`, `0x7a04` (RCK_CTRL, RCK_RTT) | `0x20000`, `0xc0800000` | |
+| `0x7a10 + n × 8` (RD0–RD4) | `0x0` | |
+| `0x7a40` (TXCTRL) | `0x40020000` | |
+| `0x7a54 + n × 8` (TD_ODT0–TD_ODT4) | `0xaa` | |
+| `0x7a78` (TCK_CTRL) | `0x55` | |
+| `0x3600` (port 6 PMCR) | `0x9e30b` | Forced link, 1 Gbit/s full duplex |
+
+The mainline driver resets the switch at probe (`SYS_CTRL`, `0x7000` = 7).
+On this unit, that reset overwrites MTRAP, IO_DRV_CR, P6ECR, the TD_ODT
+registers and port 6's PMCR, but leaves the PLL alone, and the link stays
+down until they are set again. The driver would also program the PLL and pad
+tuning for an MT7621 or a standalone MT7530. With the
+`econet,en751221-mt7530` compatible that this port adds, the driver saves
+the trap and TRGMII registers before the reset and restores them, keeps the
+PLL, and sets port 6's PMCR itself as usual.
+
+### Counters
+
+The on-die switch's counters are memory-mapped, which helps when checking
+the link between the switches. Each port's MIB block is at
+`0x1fb5c000 + port × 0x100`. Counter offsets: TX drop `0x00`, TX unicast
 `0x08`, multicast `0x0c`, broadcast `0x10`; RX drop `0x60`, filtered `0x64`,
 unicast `0x68`, multicast `0x6c`, broadcast `0x70`, alignment errors `0x74`,
 CRC errors `0x78`. With `/dev/mem` in the build, this prints the received
-unicast, multicast and broadcast counts for ports 2, 4 and 6:
+unicast, multicast and broadcast counts for port 5 (from the MT7530) and
+port 6 (from the CPU):
 
 ```
-for p in 2 4 6; do printf "p$p rx:"; for o in 104 108 112; do printf " %d" $(devmem $((0x1fb5c000+p*0x100+o)) 32); done; echo; done
+for p in 5 6; do printf "p$p rx:"; for o in 104 108 112; do printf " %d" $(devmem $((0x1fb5c000+p*0x100+o)) 32); done; echo; done
 ```
 
-**Status:** unmanaged, the switch forwards between all four ports and the
-CPU. Under the mainline `mt7530` DSA driver, the user ports get link and
-transmit frames from the CPU, but their receive counters (including the
-error counters) stay at zero. See the README's known issues.
+The MT7530's own registers are only reachable over MDIO. For the LAN
+ports, `ip -s link show lan1` (and so on) gives the counts.
 
 ## Flash layout
 

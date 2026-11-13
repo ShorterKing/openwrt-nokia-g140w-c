@@ -17,6 +17,31 @@ tests from the bootloader and from RAM-booted OpenWrt.
 | PCIe RC1 (Gen2) | MT7612E (`14c3:7662`), 5 GHz, `mt76x2e` driver |
 | USB | xHCI host |
 
+## Switch
+
+| Item | Details |
+|---|---|
+| Base address | `0x1fb58000` (register window `0x8000`) |
+| Reset | SCU register `0x1fb00834`, bit 23 |
+| Ports | 1–4 = LAN1–LAN4 (PHYs at MDIO 1–4), 6 = CPU (internal 1 Gbit/s link to the frame engine) |
+| Port control / status | `0x3000 + port × 0x100` (PMCR) / `0x3008 + port × 0x100` (PMSR) |
+| Packet counters (MIB) | `0x4000 + port × 0x100`, see below |
+
+Counter offsets within a port's MIB block: TX drop `0x00`, TX unicast
+`0x08`, multicast `0x0c`, broadcast `0x10`; RX drop `0x60`, filtered `0x64`,
+unicast `0x68`, multicast `0x6c`, broadcast `0x70`, alignment errors `0x74`,
+CRC errors `0x78`. With `/dev/mem` in the build, this prints the received
+unicast, multicast and broadcast counts for ports 2, 4 and 6:
+
+```
+for p in 2 4 6; do printf "p$p rx:"; for o in 104 108 112; do printf " %d" $(devmem $((0x1fb5c000+p*0x100+o)) 32); done; echo; done
+```
+
+**Status:** unmanaged, the switch forwards between all four ports and the
+CPU. Under the mainline `mt7530` DSA driver, the user ports get link and
+transmit frames from the CPU, but their receive counters (including the
+error counters) stay at zero. See the README's known issues.
+
 ## Flash layout
 
 The stock partitions are kept as they are. OpenWrt only uses slot A.

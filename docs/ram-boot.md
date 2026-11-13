@@ -8,7 +8,8 @@ doesn't install anything: power-cycle the router and it boots stock again.
 > the NAND bad-block driver remaps it, which writes to flash. This happened
 > once on the reference unit, inside slot A, which held only an old stock
 > copy. The RAM-test image turns remapping off for slot A and doesn't look
-> for UBI there. That fix is not yet tested on hardware.
+> for UBI there. Over several RAM boots on the reference unit it recorded no
+> new remaps.
 
 ## You need
 
@@ -41,7 +42,8 @@ doesn't install anything: power-cycle the router and it boots stock again.
 5. Start sending **right away**: the bootloader gives up after about
    30 seconds and prints `received len=fffffffd`. In Tera Term, use
    **File → Transfer → XMODEM → Send**, pick the file and choose **CRC**. The
-   transfer takes about 11 minutes.
+   transfer runs at about 10 KiB/s, so a 10.6 MiB image takes about
+   18 minutes.
 6. When it finishes, check the image landed and start it:
 
    ```
@@ -56,6 +58,15 @@ OpenWrt boots on the serial console. Press Enter to get a root shell.
 ## After booting
 
 - LuCI is at `http://192.168.1.1`. Log in as `root` with an empty password.
+- In the current build the Ethernet ports don't pass traffic yet (see the
+  README's known issues), so use Wi-Fi. It's off by default; turn it on from
+  the serial console, with your own country code and password:
+
+  ```
+  for r in 0 1; do uci set wireless.radio$r.country=IN; uci set wireless.default_radio$r.encryption=psk2; uci set wireless.default_radio$r.key='your-password'; uci set wireless.default_radio$r.disabled=0; done; uci commit wireless; wifi reload
+  ```
+
+  Both bands then broadcast `OpenWrt`.
 - If your home network also uses `192.168.1.x`, move the router's LAN first:
 
   ```

@@ -1,7 +1,7 @@
-From 8ecb95acb1ea2ecf28d041b6cfe85de90a4c5cd1 Mon Sep 17 00:00:00 2001
+From 73cc8cd3c8289d9329f6a11f03f8d90956bd0cb9 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:53:51 +0000
-Subject: [PATCH 2/4] econet-eth: add an MDIO bus
+Subject: [PATCH 3/5] econet-eth: add an MDIO bus
 
 The PHY indirect access controller of the on-die switch is the SoC's MDIO
 master. Besides the on-die switch's own PHYs, it reaches the MT7530
@@ -17,7 +17,7 @@ the mt7530 DSA driver with econet-eth as its conduit.
  create mode 100644 package/kernel/econet-eth/patches/100-add-mdio-bus.patch
 
 diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
-index f3c7c37d7e..28edec1abd 100644
+index de07827a2c..ee553f3edf 100644
 --- a/package/kernel/econet-eth/Makefile
 +++ b/package/kernel/econet-eth/Makefile
 @@ -1,7 +1,7 @@

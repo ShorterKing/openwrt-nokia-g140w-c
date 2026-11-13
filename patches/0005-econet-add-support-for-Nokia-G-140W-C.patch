@@ -1,7 +1,7 @@
-From d5bd4ffc104568a534f0c83adcb8a24418a1bf7c Mon Sep 17 00:00:00 2001
+From ed23761e5c1d356313586bb930776ab130302a0a Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 4/4] econet: add support for Nokia G-140W-C
+Subject: [PATCH 5/5] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
 dual-band Wi-Fi, supplied by Airtel in India.

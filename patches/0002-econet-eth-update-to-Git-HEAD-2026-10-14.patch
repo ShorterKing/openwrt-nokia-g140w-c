@@ -1,0 +1,45 @@
+From 23993020518da394832e4b4ac0bdff2447eea79c Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:33:16 +0000
+Subject: [PATCH 2/5] econet-eth: update to Git HEAD (2026-10-14)
+
+9644850 Merge pull request #12 from EmreYavuzalp/econet-eth-tx-fixes
+f756396 econet-eth: pad short TX frames before handing them to QDMA
+a955371 econet-eth: poll TX completions with an hrtimer, don't trust the IRQ
+f84e3fe econet-eth: disable the bootloader's CPU-protection rate limiter
+bcc4062 econet-eth: fix TX done-queue interrupt stall, cut completion latency
+9dc4685 econet-eth: wake all TX queues on completion, fix permanent stall
+b3d66a2 econet-eth: raise BQL min limit, TX was serialized to one packet
+9f70de5 econet-eth: clear tx_int_delay so TX completions are not throttled
+73c78f5 Merge pull request #10 from Cris7015/fix-txbusy-uaf
+a2adcbf en75_dev_xmit: don't free the skb on -EBUSY before returning NETDEV_TX_BUSY
+
+With the old version, a Nokia G-140W-C (EN7526G) sent at only about
+14 Mbit/s, both when routing and from local sockets: TX completions
+arrived late, BQL clamped each TX queue to about two packets, and TCP saw
+about 0.4% loss from the resulting queue drops. Raising the BQL floor by
+hand then hit the -EBUSY use-after-free and hung the device.
+---
+ package/kernel/econet-eth/Makefile | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index f3c7c37d7e..de07827a2c 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -5,9 +5,9 @@ PKG_RELEASE:=1
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+-PKG_MIRROR_HASH:=ea8402a4eba5e593a799f63ee4793486520837f0f659f34962e436eefd7c1945
+-PKG_SOURCE_DATE:=2026-07-21
+-PKG_SOURCE_VERSION:=3ba0abe30cfa0dc1e76e41218140bc061be131fb
++PKG_MIRROR_HASH:=bff591f0388dc68573f0be7b9b2af6887850382cf03b4f7c5e247efbab30e437
++PKG_SOURCE_DATE:=2026-10-14
++PKG_SOURCE_VERSION:=96448504029bd3b8014f1de7fd0e7799d52d66f2
+ 
+ include $(INCLUDE_DIR)/kernel.mk
+ include $(INCLUDE_DIR)/package.mk
+-- 
+2.43.0
+

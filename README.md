@@ -19,7 +19,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | Wi-Fi 5 GHz (MT7612E) | ✅ | 802.11ac at 80 MHz; 433 Mbit/s link to a single-antenna phone |
 | LEDs | ✅ | Power, PON, LOS, Internet, phone, USB, 2.4 GHz Wi-Fi |
 | Buttons | ✅ | Reset and LED on/off |
-| Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and reaches the internet. Routing speed not measured yet |
+| Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes. Speed was capped at about 14 Mbit/s by an Ethernet driver bug; the fix is in the build but not yet re-tested. See [Known issues](#known-issues) |
 | USB | ⏳ | Not yet tested |
 | Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
 | Install to flash, sysupgrade | ⏳ | Planned: OpenWrt in slot A, stock kept in slot B |
@@ -73,6 +73,14 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Known issues
 
+- **Routing speed (fix not yet re-tested).** With the Ethernet driver
+  version that OpenWrt currently ships (`econet-eth` from 2026-07-21), the
+  router sent at only about 14 Mbit/s on a 100 Mbit/s line, with the CPU
+  about 75% idle. Transmit completions arrived late, so the kernel's byte
+  queue limit held each transmit queue to about two packets, and TCP saw
+  about 0.4% loss from the resulting queue drops. Upstream fixed this
+  (along with a crash when the transmit ring fills up) in its 2026-10-14
+  version, and the patch series now updates the driver to it.
 - **Linux uses one of the CPU's two hardware threads.** The EN7526G's 34Kc
   core has two (VPEs), but the kernel's EN751221 platform code doesn't
   start the second one yet.
@@ -99,7 +107,8 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Roadmap
 
-1. Measure the routing speed and check the WAN LEDs.
+1. Re-test the routing speed with the updated Ethernet driver, and check
+   the WAN LEDs.
 2. Install to flash; test sysupgrade and switching back to stock.
 3. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
    tethering.

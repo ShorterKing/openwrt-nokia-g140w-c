@@ -1,6 +1,6 @@
-From c52efb4c202b296c68142cc7b3c874c982caa0fa Mon Sep 17 00:00:00 2001
+From 6167bfb3249f88b712f0c96e1afac637243d214b Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 07:05:52 +0000
+Date: Sat, 14 Nov 2026 08:36:59 +0000
 Subject: [PATCH 6/9] econet: en751221: fix delivery of odd-numbered interrupts
 
 In the MIPS interrupt compatibility mode, the EN751221 interrupt
@@ -19,6 +19,10 @@ Add a kernel patch that chains the controller to every CPU line listed
 in its "interrupts" property, and list IP2-IP6 in the device tree. IP7
 is left out: the CPU can also signal its own timer on it, and only the
 unused hwirq 31 would need it.
+
+With it, ping round-trip times to the device are below 1 ms, and the
+pending bit of the QDMA interrupt is no longer found set while the CPU
+runs other code.
 ---
  target/linux/econet/dts/en751221.dtsi         |  8 +-
  ...21-chain-to-every-cpu-interrupt-line.patch | 86 +++++++++++++++++++

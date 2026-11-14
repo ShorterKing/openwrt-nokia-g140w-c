@@ -40,14 +40,14 @@ with LAN4 connected to the ISP's router and a PC on LAN2:
 
 | Test | Result |
 |---|---|
-| Download through the router | 108–111 Mbit/s |
-| Upload through the router | About 90 Mbit/s |
-| Router CPU during a full-speed download | 60–80% of one thread |
-| Ping to 1.1.1.1, idle and during a download | 14 ms average in both cases |
+| Download through the router | 108–113 Mbit/s |
+| Upload through the router | 93–103 Mbit/s |
+| Ping to the router | Under 1 ms |
+| Ping to 1.1.1.1, idle and during a download | 8 ms average in both cases |
+| Router CPU during a full-speed download | About 90% of one thread |
 
-These were measured with the fixed Ethernet driver loaded into a running
-RAM-booted build. Getting there took several fixes, all in the patch
-series:
+These were measured with the RAM-test image built from the patch series.
+Getting there took several fixes, all in the patch series:
 
 - **13 Mbit/s** with the Ethernet driver version that OpenWrt ships.
   Transmit completions arrived late, so the kernel held each transmit queue
@@ -61,6 +61,12 @@ series:
   ends the drops at the start of each download, and with GRO off on the
   switch ports. The driver has no checksum offload, so GRO cost more than
   it saved.
+- **8 ms instead of 14 ms** to 1.1.1.1, and under 1 ms instead of 1–11 ms
+  to the router itself, after fixing how Linux connects the interrupt
+  controller. Received packets used to wait for the next timer tick; see
+  [the hardware notes](docs/hardware.md#interrupt-controller). Handling
+  each packet as it arrives costs more CPU at full speed than the old
+  accidental batching: about 90% instead of 77%.
 
 ## Hardware
 
@@ -103,17 +109,11 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Known issues
 
-- **Latency when the network is quiet (fix not yet re-tested).** The
-  router answered pings in 1–11 ms, because its interrupt controller only
-  passed the Ethernet interrupt on at the next timer tick. Packets through
-  the router waited too, up to 10 ms each way. Under load the driver
-  polls, so throughput wasn't affected. The fix is in the build; see
-  [the hardware notes](docs/hardware.md#interrupt-controller). It also
-  applies to USB and the 2.4 GHz Wi-Fi, whose interrupts have odd numbers
-  too.
 - **Linux uses one of the CPU's two hardware threads.** The EN7526G's 34Kc
   core has two (VPEs), but the kernel's EN751221 platform code doesn't
-  start the second one yet.
+  start the second one yet. Routing a 100 Mbit/s line keeps that one
+  thread about 90% busy, so a faster line, or heavy Wi-Fi traffic at the
+  same time, may hit the limit.
 - The device tree embeds Wi-Fi calibration data copied from the reference
   unit. Other units will work, but their radios may perform a little worse
   until the calibration is read from flash (planned).
@@ -137,13 +137,14 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Roadmap
 
-1. Re-test the full image with the interrupt fix, and check the WAN LEDs.
-2. Install to flash; test sysupgrade and switching back to stock.
-3. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
+1. Install to flash; test sysupgrade and switching back to stock. Check
+   the WAN LEDs.
+2. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
    tethering.
-4. Read the Wi-Fi calibration from flash instead of embedding it.
-5. Start the CPU's second hardware thread.
-6. Send the Ethernet driver and interrupt fixes upstream, publish images
+3. Read the Wi-Fi calibration from flash instead of embedding it.
+4. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
+   CPU's second hardware thread.
+5. Send the Ethernet driver and interrupt fixes upstream, publish images
    and submit the port to OpenWrt.
 
 ## Credits

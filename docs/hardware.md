@@ -138,7 +138,11 @@ the timer tick drifted. Three checks pinned it down:
 
 This port chains the controller to IP2–IP6. IP7 is left out because the
 CPU can also signal its own timer on it; only IRQ 31, which is unused,
-would need it.
+would need it. With the fix, the router answers pings in under 1 ms, and
+pings through it to 1.1.1.1 dropped from 14 to 8 ms. The `econet-eth`
+driver's comments describe the same symptom for transmit completions
+("in practice the timer tick") and work around it with a 150 µs poll
+timer.
 
 | IRQ | Device | Number on the CPU lines |
 |---|---|---|

@@ -1,4 +1,4 @@
-From 75fa627aa35e591ee6913f9ca2fa842ee64da522 Mon Sep 17 00:00:00 2001
+From 6fccf3be52c8d3183ce1475b216a757025d57fca Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:53:51 +0000
 Subject: [PATCH 7/9] econet: en751221: support the MT7530 module of the

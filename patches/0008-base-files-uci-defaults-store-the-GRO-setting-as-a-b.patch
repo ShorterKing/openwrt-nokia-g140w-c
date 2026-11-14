@@ -1,4 +1,4 @@
-From 291ca2cd0aa884b2dea9f169f38cf956ea412ed3 Mon Sep 17 00:00:00 2001
+From 8b4435a96334173e0394c69bf1a4b2192709a56c Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 07:06:08 +0000
 Subject: [PATCH 8/9] base-files: uci-defaults: store the GRO setting as a

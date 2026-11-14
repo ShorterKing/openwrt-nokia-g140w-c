@@ -78,4 +78,7 @@ OpenWrt boots on the serial console. Press Enter to get a root shell.
   ```
 
   Both bands then broadcast `OpenWrt`.
+- When measuring speed from a PC that is also on another network over
+  Wi-Fi, turn its Wi-Fi off first. Windows can send IPv6 traffic over the
+  Wi-Fi and bypass the router.
 - Settings are lost on power-off; this is a RAM session only.

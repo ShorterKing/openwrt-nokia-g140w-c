@@ -1,0 +1,72 @@
+From 3095f21b699e854370caa5450e61e67c75bc8314 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 07:05:52 +0000
+Subject: [PATCH 5/9] econet-eth: use 512 RX descriptors
+
+The 128 RX descriptors hold about 1.5 ms of traffic at gigabit line rate.
+When a TCP sender in slow start bursts faster than the CPU forwards, the
+ring overflows and the GDM drops packets: several hundred at the start of
+each download on a Nokia G-140W-C.
+
+Add a patch that uses 512 descriptors and sizes the page pool's recycling
+ring to match. On the same device, the drops at the start of downloads
+went to zero.
+---
+ package/kernel/econet-eth/Makefile            |  2 +-
+ .../patches/102-use-512-rx-descriptors.patch  | 34 +++++++++++++++++++
+ 2 files changed, 35 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/102-use-512-rx-descriptors.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index 88aee0c188..e2d58c7ee3 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/102-use-512-rx-descriptors.patch b/package/kernel/econet-eth/patches/102-use-512-rx-descriptors.patch
+new file mode 100644
+index 0000000000..56c54787f4
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/102-use-512-rx-descriptors.patch
+@@ -0,0 +1,34 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] use 512 RX descriptors
++
++With 128 RX descriptors, the ring holds about 1.5 ms of traffic arriving
++at gigabit line rate. When a TCP sender in slow start bursts faster than
++the CPU forwards, the ring overflows and the GDM drops packets. On the
++EN7526G this shows as several hundred drops at the start of each
++download.
++
++Use 512 descriptors, and size the page pool's recycling ring to match.
++
++---
++--- a/econet_eth.c
+++++ b/econet_eth.c
++@@ -389,7 +389,7 @@ static void en75_prepare_qdma_cfg(struct
++ {
++ 	memset(cfg, 0, sizeof(*cfg));
++ 	for (int i = 0; i < QDMA_NUM_CHAINS; i++)
++-		cfg->num_rx_descs[i] = 128;
+++		cfg->num_rx_descs[i] = 512;
++ 	for (int i = 0; i < QDMA_NUM_CHAINS; i++)
++ 		cfg->num_tx_descs[i] = 128;
++ 	for (int i = 0; i < QDMA_NUM_TX_DONE; i++)
++--- a/econet_qdma.c
+++++ b/econet_qdma.c
++@@ -681,7 +681,7 @@ static int en75_init_rx_queue(struct en7
++ {
++ 	const struct page_pool_params pp_params = {
++ 		.order = 0,
++-		.pool_size = 256,
+++		.pool_size = ndesc,
++ 		.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV,
++ 		.dma_dir = DMA_FROM_DEVICE,
++ 		.max_len = PAGE_SIZE,

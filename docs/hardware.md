@@ -82,6 +82,74 @@ for p in 5 6; do printf "p$p rx:"; for o in 104 108 112; do printf " %d" $(devme
 The MT7530's own registers are only reachable over MDIO. For the LAN
 ports, `ip -s link show lan1` (and so on) gives the counts.
 
+## Ethernet DMA (QDMA)
+
+The frame engine hands packets to the CPU through QDMA 0 at `0x1fb54000`
+(QDMA 1, at `0x1fb55000`, is unused). Findings that mattered for speed:
+
+- **RX 2-byte offset.** Bit 31 of `qdma_cfg` (`+0x04`) makes the DMA store
+  each received frame 2 bytes past the buffer address, so that the IP header
+  is 4-byte aligned after the 14-byte Ethernet header and the 4-byte MTK
+  tag. The driver didn't set it, and the IP header sat 2 bytes off. MIPS
+  has no unaligned loads, so every packet cost about 55 trapped and
+  emulated accesses, and routing topped out at about 60 Mbit/s with the CPU
+  fully busy. The count is in `/sys/kernel/debug/mips/unaligned_instructions`.
+- **RX ring size.** With 128 descriptors, a TCP sender's slow-start burst
+  overflowed the ring at the start of each download, and the GDM 1 drop
+  counter (`eth0` RX drops) rose by several hundred. With 512 it stays at 0.
+- **Interrupts.** `int_status` is at `+0x50` and `int_enable` at `+0x54`.
+  Bit 2 (TX "no descriptor") is always set; the driver leaves it disabled.
+
+The driver's debugfs, `/sys/kernel/debug/econet_eth/qdma0/`, shows the
+registers, interrupt counts per source and TX counts per channel and
+queue.
+
+## Interrupt controller
+
+The interrupt controller is at `0x1fb40000`. The vendor kernel names its
+registers:
+
+| Offset | Register |
+|---|---|
+| `0x00` | Interrupt type |
+| `0x04`, `0x50` | Mask, for IRQs 0–31 and 32–39 |
+| `0x08`, `0x54` | Pending, for IRQs 0–31 and 32–39 |
+| `0x0c` | Interrupt set |
+| `0x10`–`0x2c`, `0x58`–`0x5c` | Priority, one byte per IRQ, IRQ 0 in the top byte of `0x10` |
+| `0x30`–`0x4c`, `0x60`–`0x64` | VPE and shadow register set for each IRQ |
+
+Linux runs the CPU in the MIPS interrupt compatibility mode, not the
+vectored (EIC) mode the controller was designed for. In that mode the
+controller doesn't give each source its own CPU interrupt line. It presents
+the number of the pending interrupt plus one, in binary, on the CPU lines
+IP2–IP7. The vendor kernel reads it as `(read_c0_cause() & ST0_IM) >> 10`.
+
+Mainline Linux chained the controller to IP2 alone, which only catches
+even-numbered IRQs. The odd ones, including the Ethernet DMA, waited for
+the next even-numbered interrupt, normally the 100 Hz timer tick. A quiet
+router then answered pings in 1–11 ms, cycling through that range as
+the timer tick drifted. Three checks pinned it down:
+
+- the pending bit of IRQ 21 was set in about 80% of reads taken from a
+  userspace loop, which can't happen if the interrupt reaches the CPU;
+- giving IRQ 21 a different priority changed nothing;
+- a 1 ms sleep loop on the router, which adds timer interrupts, made the
+  latency flat.
+
+This port chains the controller to IP2–IP6. IP7 is left out because the
+CPU can also signal its own timer on it; only IRQ 31, which is unused,
+would need it.
+
+| IRQ | Device | Number on the CPU lines |
+|---|---|---|
+| 0 | UART | 1: IP2 |
+| 17 | xHCI | 18: IP3, IP6 |
+| 21 | QDMA 0 (Ethernet) | 22: IP3, IP4, IP6 |
+| 22 | QDMA 1 | 23: IP2, IP3, IP4, IP6 |
+| 23 | PCIe RC0 (2.4 GHz Wi-Fi) | 24: IP5, IP6 |
+| 24 | PCIe RC1 (5 GHz Wi-Fi) | 25: IP2, IP5, IP6 |
+| 30 | Timer | 31: IP2–IP6 |
+
 ## Flash layout
 
 The stock partitions are kept as they are. OpenWrt only uses slot A.

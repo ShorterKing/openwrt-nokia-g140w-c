@@ -6,8 +6,9 @@ Wi-Fi, four gigabit ports with a separate WAN port, LEDs and buttons. The fibre
 side and the phone port are out of scope, because their drivers are closed.
 
 > **Status: work in progress.** OpenWrt boots from RAM on real hardware.
-> Wi-Fi, the LAN ports and the separate WAN port work. Nothing here installs
-> to flash yet, and there are no downloadable images yet.
+> Wi-Fi, the LAN ports and the separate WAN port work, and routing keeps up
+> with a 100 Mbit/s line. Nothing here installs to flash yet, and there are
+> no downloadable images yet.
 
 ## What works
 
@@ -19,7 +20,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | Wi-Fi 5 GHz (MT7612E) | ✅ | 802.11ac at 80 MHz; 433 Mbit/s link to a single-antenna phone |
 | LEDs | ✅ | Power, PON, LOS, Internet, phone, USB, 2.4 GHz Wi-Fi |
 | Buttons | ✅ | Reset and LED on/off |
-| Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes. Speed was capped at about 14 Mbit/s by an Ethernet driver bug; the fix is in the build but not yet re-tested. See [Known issues](#known-issues) |
+| Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
 | USB | ⏳ | Not yet tested |
 | Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
 | Install to flash, sysupgrade | ⏳ | Planned: OpenWrt in slot A, stock kept in slot B |
@@ -31,6 +32,35 @@ default, the PON LED shows the WAN cable link, the Internet LED shows WAN
 link and traffic, the USB LED lights when a USB device is plugged in, and
 the 2.4 GHz LED shows Wi-Fi activity. These defaults are in the build but not
 yet checked on hardware.
+
+## Performance
+
+Measured on the reference unit as the router of a 100 Mbit/s fibre line,
+with LAN4 connected to the ISP's router and a PC on LAN2:
+
+| Test | Result |
+|---|---|
+| Download through the router | 108–111 Mbit/s |
+| Upload through the router | About 90 Mbit/s |
+| Router CPU during a full-speed download | 60–80% of one thread |
+| Ping to 1.1.1.1, idle and during a download | 14 ms average in both cases |
+
+These were measured with the fixed Ethernet driver loaded into a running
+RAM-booted build. Getting there took several fixes, all in the patch
+series:
+
+- **13 Mbit/s** with the Ethernet driver version that OpenWrt ships.
+  Transmit completions arrived late, so the kernel held each transmit queue
+  to about two packets.
+- **59 Mbit/s** with the driver's 2026-10-14 version, which fixes that. The
+  CPU was now fully busy.
+- **101 Mbit/s** after aligning the IP header of received packets. Each
+  packet had cost about 55 unaligned memory accesses, which MIPS traps and
+  emulates.
+- **108–111 Mbit/s** with 512 receive descriptors instead of 128, which
+  ends the drops at the start of each download, and with GRO off on the
+  switch ports. The driver has no checksum offload, so GRO cost more than
+  it saved.
 
 ## Hardware
 
@@ -73,14 +103,14 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Known issues
 
-- **Routing speed (fix not yet re-tested).** With the Ethernet driver
-  version that OpenWrt currently ships (`econet-eth` from 2026-07-21), the
-  router sent at only about 14 Mbit/s on a 100 Mbit/s line, with the CPU
-  about 75% idle. Transmit completions arrived late, so the kernel's byte
-  queue limit held each transmit queue to about two packets, and TCP saw
-  about 0.4% loss from the resulting queue drops. Upstream fixed this
-  (along with a crash when the transmit ring fills up) in its 2026-10-14
-  version, and the patch series now updates the driver to it.
+- **Latency when the network is quiet (fix not yet re-tested).** The
+  router answered pings in 1–11 ms, because its interrupt controller only
+  passed the Ethernet interrupt on at the next timer tick. Packets through
+  the router waited too, up to 10 ms each way. Under load the driver
+  polls, so throughput wasn't affected. The fix is in the build; see
+  [the hardware notes](docs/hardware.md#interrupt-controller). It also
+  applies to USB and the 2.4 GHz Wi-Fi, whose interrupts have odd numbers
+  too.
 - **Linux uses one of the CPU's two hardware threads.** The EN7526G's 34Kc
   core has two (VPEs), but the kernel's EN751221 platform code doesn't
   start the second one yet.
@@ -107,14 +137,14 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Roadmap
 
-1. Re-test the routing speed with the updated Ethernet driver, and check
-   the WAN LEDs.
+1. Re-test the full image with the interrupt fix, and check the WAN LEDs.
 2. Install to flash; test sysupgrade and switching back to stock.
 3. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
    tethering.
 4. Read the Wi-Fi calibration from flash instead of embedding it.
 5. Start the CPU's second hardware thread.
-6. Publish images and submit the port to OpenWrt.
+6. Send the Ethernet driver and interrupt fixes upstream, publish images
+   and submit the port to OpenWrt.
 
 ## Credits
 

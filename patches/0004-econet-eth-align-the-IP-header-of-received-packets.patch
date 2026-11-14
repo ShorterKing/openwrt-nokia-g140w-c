@@ -1,0 +1,139 @@
+From a3622b025452d91fd085c75c8a78e60e8539e7e7 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 07:05:52 +0000
+Subject: [PATCH 4/9] econet-eth: align the IP header of received packets
+
+The QDMA stores each received frame at the start of its buffer, and the
+driver builds the skb there with no headroom. The IP header then sits 2
+bytes off a 4-byte boundary, so on MIPS every access to the IP and TCP
+headers traps and is emulated: about 55 traps per received packet on a
+Nokia G-140W-C (EN7526G). Routing topped out at about 60 Mbit/s with the
+CPU fully busy.
+
+Add a patch that sets the RX 2-byte offset of the QDMA and leaves
+NET_SKB_PAD of headroom in front of each frame. The headroom also spares
+forwarded packets a head reallocation and copy in ip_finish_output2().
+
+With it, the same device routes a 100 Mbit/s line at full speed, and the
+kernel's unaligned access counter no longer moves.
+---
+ package/kernel/econet-eth/Makefile            |  2 +-
+ .../patches/101-align-rx-ip-header.patch      | 96 +++++++++++++++++++
+ 2 files changed, 97 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/101-align-rx-ip-header.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index ee553f3edf..88aee0c188 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/101-align-rx-ip-header.patch b/package/kernel/econet-eth/patches/101-align-rx-ip-header.patch
+new file mode 100644
+index 0000000000..0ffa46ce7c
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/101-align-rx-ip-header.patch
+@@ -0,0 +1,96 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] align the IP header of received packets
++
++The hardware stores each received frame at the start of its buffer, and
++the skb is built there with no headroom. The IP header then sits 2 bytes
++off a 4-byte boundary: at offset 14 after a plain Ethernet header, or 18
++after one carrying the 4-byte MTK tag of a DSA switch. MIPS has no
++unaligned loads, so every access to the IP and TCP headers traps and is
++emulated. On the EN7526G that is about 55 traps per received packet,
++which limits routing to about 60 Mbit/s with the CPU fully busy.
++
++Set RX_2B_OFFSET in qdma_cfg, so that the hardware stores each frame 2
++bytes past the buffer address, and reserve those 2 bytes in the skb.
++
++Also leave NET_SKB_PAD of headroom in front of each frame. Without it, a
++forwarded packet has too little room for its new link-layer headers, and
++ip_finish_output2() reallocates the head and copies the packet.
++
++---
++--- a/econet_qdma.c
+++++ b/econet_qdma.c
++@@ -17,6 +17,21 @@
++ #include "qdma_regs.h"
++ #include "econet_eth.h"
++ 
+++/* Space left in front of each received frame, so that the headers pushed
+++ * when a packet is forwarded (Ethernet, DSA tag, VLAN, PPPoE) fit without
+++ * reallocating the skb head.
+++ */
+++#define EN75_RX_HEADROOM	NET_SKB_PAD
+++
+++/* With RX_2B_OFFSET set in qdma_cfg, the hardware stores each frame 2 bytes
+++ * past the buffer address in the descriptor. That puts the IP header on a
+++ * 4-byte boundary, after both a plain 14-byte Ethernet header and one
+++ * carrying a 4-byte DSA tag. Without it, every access to the IP and TCP
+++ * headers is an unaligned access, which MIPS emulates in an exception
+++ * handler.
+++ */
+++#define EN75_RX_HW_OFFSET	2
+++
++ /* The non-dma part of RX packet descriptor */
++ struct en75_q_rx_ent {
++ 	void				*buf;
++@@ -141,11 +156,14 @@ static void en75_fill_rx_queue(struct en
++ 
++ 		WARN_ON_ONCE(e->dma_addr);
++ 		e->buf = page_address(page) + offset;
++-		e->dma_addr = page_pool_get_dma_addr(page) + offset;
++-		e->dma_len = SKB_WITH_OVERHEAD(q->buf_size);
+++		e->dma_addr = page_pool_get_dma_addr(page) + offset +
+++			      EN75_RX_HEADROOM;
+++		e->dma_len = SKB_WITH_OVERHEAD(q->buf_size) - EN75_RX_HEADROOM;
++ 
++ 		WRITE_ONCE(pdesc->info, ((struct desc_info) {
++-			.word = FIELD_PREP(DESC_INFO_PKT_LEN_MASK, e->dma_len)
+++			.word = FIELD_PREP(DESC_INFO_PKT_LEN_MASK,
+++					   ALIGN_DOWN(e->dma_len -
+++						      EN75_RX_HW_OFFSET, 4))
++ 		}));
++ 		WRITE_ONCE(pdesc->pkt_addr, e->dma_addr);
++ 		for (i = 0; i < ARRAY_SIZE(pdesc->msg.raw); i++)
++@@ -171,8 +189,7 @@ static void en75_qdma_rx_process_one(str
++ 
++ 	memcpy(&desc, &q->desc[cpu_i], sizeof(desc));
++ 
++-	dma_sync_single_for_cpu(q->qdma->dev, e->dma_addr,
++-				SKB_WITH_OVERHEAD(q->buf_size), dir);
+++	dma_sync_single_for_cpu(q->qdma->dev, e->dma_addr, e->dma_len, dir);
++ 	
++ 	/* Not needed but a couple of WARN_ON_ONCE() check this later */
++ 	e->dma_addr = 0;
++@@ -181,7 +198,7 @@ static void en75_qdma_rx_process_one(str
++ 	WRITE_ONCE(q->desc[cpu_i].pkt_addr, 0);
++ 
++ 	len = get_desc_info_pkt_len(&desc.info);
++-	if (!len || len > SKB_WITH_OVERHEAD(q->buf_size))
+++	if (!len || len > e->dma_len - EN75_RX_HW_OFFSET)
++ 		goto return_page;
++ 
++ 	if (WARN_ON_ONCE(is_desc_info_nls(&desc.info)))
++@@ -191,6 +208,7 @@ static void en75_qdma_rx_process_one(str
++ 	if (!skb)
++ 		goto return_page;
++ 
+++	skb_reserve(skb, EN75_RX_HEADROOM + EN75_RX_HW_OFFSET);
++ 	__skb_put(skb, len);
++ 	skb_mark_for_recycle(skb);
++ 	skb->ip_summed = CHECKSUM_UNNECESSARY;
++@@ -997,6 +1015,7 @@ static int en75_init_final(struct en75_q
++ 	}
++ 
++ 	qcfg = (struct qregs_qcfg) { 0 };
+++	set_qregs_qcfg_rx_2b_offset(&qcfg, true);
++ 	set_qregs_qcfg_msg_word_swap(&qcfg, true);
++ 	set_qregs_qcfg_dscp_byte_swap(&qcfg, qdma->soc->dscp_byte_swap);
++ 	set_qregs_qcfg_payload_byte_sw(&qcfg, true);

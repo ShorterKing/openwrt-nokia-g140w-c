@@ -1,0 +1,33 @@
+From 291ca2cd0aa884b2dea9f169f38cf956ea412ed3 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 07:06:08 +0000
+Subject: [PATCH 8/9] base-files: uci-defaults: store the GRO setting as a
+ boolean
+
+ucidef_set_network_device_gro stores its value as a JSON string, but
+netifd only accepts a boolean "gro" in board.json, so the setting was
+silently ignored. Store it with json_add_boolean.
+
+Checked on a Nokia G-140W-C: with the string, GRO stayed on; with the
+boolean, netifd turned it off.
+---
+ package/base-files/files/lib/functions/uci-defaults.sh | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/package/base-files/files/lib/functions/uci-defaults.sh b/package/base-files/files/lib/functions/uci-defaults.sh
+index 34005fe0fa..cbb4d33231 100644
+--- a/package/base-files/files/lib/functions/uci-defaults.sh
++++ b/package/base-files/files/lib/functions/uci-defaults.sh
+@@ -128,7 +128,11 @@ ucidef_set_network_device_path_port() {
+ }
+ 
+ ucidef_set_network_device_gro() {
+-	_ucidef_set_network_device_common $1 gro $2
++	json_select_object "network_device"
++	json_select_object "${1}"
++	json_add_boolean gro "${2}"
++	json_select ..
++	json_select ..
+ }
+ 
+ ucidef_set_network_device_conduit() {

@@ -1,7 +1,7 @@
-From ed23761e5c1d356313586bb930776ab130302a0a Mon Sep 17 00:00:00 2001
+From 23f3a68130f0021bf7b42ce739390152de2bdd4c Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 5/5] econet: add support for Nokia G-140W-C
+Subject: [PATCH 9/9] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
 dual-band Wi-Fi, supplied by Airtel in India.
@@ -32,19 +32,25 @@ writes slot A: it turns off BMT remapping there and renames the UBI
 area so the UBI auto-attach doesn't read it. It also checks the vendor
 BMT pool size.
 
+GRO is off on the switch ports by default. econet-eth has no checksum or
+scatter-gather offload, so the CPU would split and checksum every merged
+packet again before forwarding it: downloads through the device ran at
+97 Mbit/s with GRO and 111 Mbit/s without.
+
 Tested by loading the initramfs kernel through the bootloader's XMODEM
 command: Wi-Fi on both bands, LAN1-LAN3 bridged and LAN4 as WAN with
-DHCP. Installation: not final yet.
+DHCP, routing a 100 Mbit/s line at full speed. Installation: not final
+yet.
 ---
  .../econet/base-files/etc/board.d/01_leds     |   6 +
- .../econet/base-files/etc/board.d/02_network  |  10 +
+ .../econet/base-files/etc/board.d/02_network  |  15 +
  .../econet/base-files/lib/upgrade/platform.sh |   6 +-
  .../linux/econet/base-files/sbin/en75_chboot  |  13 +
  .../dts/en751221_nokia_g140w-c-bringup.dts    |  34 ++
  .../econet/dts/en751221_nokia_g140w-c.dts     |  10 +
  .../econet/dts/en751221_nokia_g140w-c.dtsi    | 428 ++++++++++++++++++
  target/linux/econet/image/en751221.mk         |  32 ++
- 8 files changed, 537 insertions(+), 2 deletions(-)
+ 8 files changed, 542 insertions(+), 2 deletions(-)
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
@@ -67,21 +73,26 @@ index 7b1a405171..82be82362d 100644
  
  board_config_flush
 diff --git a/target/linux/econet/base-files/etc/board.d/02_network b/target/linux/econet/base-files/etc/board.d/02_network
-index 8bb6b25b0b..c350be7e9a 100644
+index 8bb6b25b0b..376cc7a08a 100644
 --- a/target/linux/econet/base-files/etc/board.d/02_network
 +++ b/target/linux/econet/base-files/etc/board.d/02_network
-@@ -14,6 +14,10 @@ econet_setup_interfaces()
+@@ -14,6 +14,15 @@ econet_setup_interfaces()
  	jiofiber,jcow414)
  		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
  		;;
 +	nokia,g140w-c|\
 +	nokia,g140w-c-bringup)
 +		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "lan4"
++		# econet-eth has no checksum or scatter-gather offload, so GRO
++		# only makes the CPU split and checksum forwarded packets again
++		for port in lan1 lan2 lan3 lan4; do
++			ucidef_set_network_device_gro "$port" 0
++		done
 +		;;
  	*)
  		# The remaining boards have no DSA switch driver yet.
  		ucidef_set_interface_lan "eth0"
-@@ -33,6 +37,12 @@ econet_setup_macs()
+@@ -33,6 +42,12 @@ econet_setup_macs()
  		wan_mac="$(get_mac_gs3101)"
  		[ -n "$wan_mac" ] && lan_mac="$(macaddr_add $wan_mac 1)"
  		;;
@@ -675,6 +686,3 @@ index ec96a5ac20..b354e8b11e 100644
  define Device/smartfiber_xp8421-b
    DEVICE_VENDOR := SmartFiber
    DEVICE_MODEL := XP8421-B
--- 
-2.43.0
-

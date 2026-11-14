@@ -1,7 +1,7 @@
 From 158ae92e3c40582f1ddcf50548872e3c16938dd5 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 01/12] econet: en751221: enable MT7530 DSA switch support
+Subject: [PATCH 01/14] econet: en751221: enable MT7530 DSA switch support
 
 The EN7526G in the EN751221 family carries an MT7530 as a multi-chip
 module, on the MDIO bus of the SoC's on-die switch. Enable DSA, the

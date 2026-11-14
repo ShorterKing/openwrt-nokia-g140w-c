@@ -1,7 +1,7 @@
 From 8cae4ba1e8e15276f6f2c66cbc8dfbee426c1943 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 08:36:59 +0000
-Subject: [PATCH 09/12] econet: en751221: fix delivery of odd-numbered
+Subject: [PATCH 09/14] econet: en751221: fix delivery of odd-numbered
  interrupts
 
 In the MIPS interrupt compatibility mode, the EN751221 interrupt

@@ -58,8 +58,12 @@ The upgrade then:
    The bootloader needs it in the slot it boots, and it's Nokia's code, so
    it isn't in the image. See [the hardware notes](hardware.md#bootloader-stages).
    If it can't find one, the image check fails and nothing is written.
-2. Selects slot A for the next boot.
-3. Writes the kernel with the bootram and the root filesystem, and reboots.
+2. Copies the Wi-Fi calibration from the stock settings, read-only, unless
+   it already has a copy. See [the hardware notes](hardware.md#wi-fi-calibration).
+   If it can't find it, the install goes ahead and Wi-Fi runs uncalibrated.
+3. Selects slot A for the next boot.
+4. Writes the kernel with the bootram, the Wi-Fi calibration and the root
+   filesystem, and reboots.
 
 The router comes up as OpenWrt from flash, at `192.168.1.1` again.
 
@@ -73,7 +77,14 @@ The router comes up as OpenWrt from flash, at `192.168.1.1` again.
 ## Upgrading
 
 Use `sysupgrade` or LuCI as on any OpenWrt router; keeping settings works.
-The bootram is copied over again each time.
+The bootram is copied over again each time, and the Wi-Fi calibration
+volume is kept.
+
+`sysupgrade` runs the upgrade scripts of the installed system, not of
+the new image. So when upgrading from a build without the calibration
+volume (before 2026-11-14), the first upgrade doesn't create it, and
+Wi-Fi stays off afterwards. Run the same upgrade a second time: the
+scripts that are installed now create the volume.
 
 ## Going back to stock
 
@@ -93,11 +104,28 @@ the other slot by itself: power-cycle the router nine times and the stock
 firmware comes up. OpenWrt resets the count after every boot, so this
 doesn't happen during normal use.
 
+To get back to OpenWrt from there, boot the production image from RAM as
+in step 1. Its `sysupgrade` reinstalls OpenWrt to slot A and selects it
+again. To keep your settings, use the backup that the failed upgrade left
+in slot A, if there is one: mount `rootfs_data` read-only, copy
+`upper/sysupgrade.tgz` out, unmount, and pass it with `-f`:
+
+```
+mkdir /tmp/d; mount -t ubifs -o ro ubi0:rootfs_data /tmp/d; cp /tmp/d/upper/sysupgrade.tgz /tmp/cfg.tgz; umount /tmp/d
+sysupgrade -f /tmp/cfg.tgz /tmp/sysupgrade.bin
+```
+
+Otherwise use `sysupgrade -n`, or `-f` with a backup from LuCI.
+
 ## What was tested
 
 On the reference unit:
 
 - Upgrading an installed OpenWrt with `sysupgrade`, keeping settings.
+- Recovering from the stock firmware: a RAM boot, then `sysupgrade -f`
+  with the settings backup from slot A. That upgrade also created the
+  Wi-Fi calibration volume, and both radios then used exactly the
+  calibration the stock settings hold.
 - Finding the bootram in slot A and in slot B, and building the slot A
   image from it, in a dry run that matched a working image byte for byte.
 - Reboots, with the boot count cleared each time.

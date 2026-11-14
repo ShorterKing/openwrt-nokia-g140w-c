@@ -1,7 +1,7 @@
 From f2428b69ebdb4ba1d21636df9ace9e43f3d8a612 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 16:21:18 +0000
-Subject: [PATCH 08/12] econet-eth: reset the TRGMII receiver when the port is
+Subject: [PATCH 08/14] econet-eth: reset the TRGMII receiver when the port is
  opened
 
 On the EN7526G the LAN ports are on an MT7530 that is linked to port 5

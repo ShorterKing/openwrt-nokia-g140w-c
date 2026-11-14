@@ -19,6 +19,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | LAN ports (LAN1–LAN3) | ✅ | Bridged, through the mainline `mt7530` DSA driver |
 | Wi-Fi 2.4 GHz (MT7592) | ✅ | Access point with WPA2 |
 | Wi-Fi 5 GHz (MT7612E) | ✅ | 802.11ac at 80 MHz; 433 Mbit/s link to a single-antenna phone |
+| Wi-Fi calibration from flash | ✅ | Copied from the stock settings at install. See [the hardware notes](docs/hardware.md#wi-fi-calibration) |
 | LEDs | ✅ | Power, PON, LOS, Internet, phone, USB, 2.4 GHz Wi-Fi |
 | Buttons | ✅ | Reset and LED on/off |
 | Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
@@ -129,9 +130,10 @@ The full GPIO, LED, button, MAC and flash maps are in
   start the second one yet. Routing a 100 Mbit/s line keeps that one
   thread about 90% busy, so a faster line, or heavy Wi-Fi traffic at the
   same time, may hit the limit.
-- The device tree embeds Wi-Fi calibration data copied from the reference
-  unit. Other units will work, but their radios may perform a little worse
-  until the calibration is read from flash (planned).
+- The RAM-test image carries the reference unit's Wi-Fi calibration, since
+  it doesn't touch slot A. Other units' radios work with it, but may
+  perform a little worse. Installed systems use their own unit's
+  calibration.
 - Installing with `sysupgrade -n` from the RAM-booted image and switching
   back to stock haven't been tried yet. The first install on the reference
   unit was done by hand, with the steps `sysupgrade` now automates, and
@@ -155,10 +157,9 @@ The full GPIO, LED, button, MAC and flash maps are in
    Check the WAN LEDs.
 2. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
    tethering.
-3. Read the Wi-Fi calibration from flash instead of embedding it.
-4. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
+3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
    CPU's second hardware thread.
-5. Send the Ethernet driver and interrupt fixes upstream, publish images
+4. Send the Ethernet driver and interrupt fixes upstream, publish images
    and submit the port to OpenWrt.
 
 ## Credits

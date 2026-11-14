@@ -1,7 +1,7 @@
 From 12e082312dce446387524973cbd467cfeb9366e1 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 16:21:17 +0000
-Subject: [PATCH 07/12] econet-eth: don't lose the RX interrupt while NAPI is
+Subject: [PATCH 07/14] econet-eth: don't lose the RX interrupt while NAPI is
  disabled
 
 The interrupt handler masks a ring's interrupt and schedules its NAPI,

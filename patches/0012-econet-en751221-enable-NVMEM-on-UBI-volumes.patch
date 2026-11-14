@@ -1,0 +1,27 @@
+From f20c7711852e6c622c5af4092bd64262d2d01af6 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 20:10:19 +0000
+Subject: [PATCH 12/14] econet: en751221: enable NVMEM on UBI volumes
+
+Let device trees describe NVMEM cells in UBI volumes, as the airoha,
+ath79 NAND and ipq806x targets do. The Nokia G-140W-C keeps its Wi-Fi
+calibration in one.
+---
+ target/linux/econet/en751221/config-6.18 | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/target/linux/econet/en751221/config-6.18 b/target/linux/econet/en751221/config-6.18
+index 280b0e47c6..38c6afa7a0 100644
+--- a/target/linux/econet/en751221/config-6.18
++++ b/target/linux/econet/en751221/config-6.18
+@@ -122,6 +122,7 @@ CONFIG_MTD_SPI_NAND=y
+ CONFIG_MTD_UBI=y
+ CONFIG_MTD_UBI_BEB_LIMIT=13
+ CONFIG_MTD_UBI_BLOCK=y
++CONFIG_MTD_UBI_NVMEM=y
+ CONFIG_MTD_UBI_WL_THRESHOLD=4096
+ CONFIG_MTD_VIRT_CONCAT=y
+ CONFIG_MTK_NET_PHYLIB=y
+-- 
+2.43.0
+

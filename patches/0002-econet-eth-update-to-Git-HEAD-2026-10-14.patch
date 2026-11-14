@@ -1,7 +1,7 @@
 From 23993020518da394832e4b4ac0bdff2447eea79c Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 21:33:16 +0000
-Subject: [PATCH 02/12] econet-eth: update to Git HEAD (2026-10-14)
+Subject: [PATCH 02/14] econet-eth: update to Git HEAD (2026-10-14)
 
 9644850 Merge pull request #12 from EmreYavuzalp/econet-eth-tx-fixes
 f756396 econet-eth: pad short TX frames before handing them to QDMA

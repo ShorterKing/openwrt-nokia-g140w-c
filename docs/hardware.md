@@ -217,7 +217,7 @@ The stock partitions are kept as they are. OpenWrt only uses slot A.
 | `tclinux` (slot A) | `0x80000` | 34 MiB | **OpenWrt**: `tclinux_kernel` (4 MiB) + `ubi` (27 MiB), see below |
 | `kernel_slave` + `rootfs_slave` (slot B) | `0x2280000` | 3 + 31 MiB | Stock firmware |
 | `kernel_oflt` + `rootfs_oflt` | `0x4480000` | 3 + 12 MiB | Stock OFLT image |
-| `config` | `0x5380000` | 8 MiB | Stock settings (UBIFS); holds the Wi-Fi calibration |
+| `config` | `0x5380000` | 8 MiB | Stock settings (UBIFS); holds the [Wi-Fi calibration](#wi-fi-calibration) |
 | `log` | `0x5b80000` | 12 MiB | Stock logs |
 | `extfs` | `0x6780000` | 6 MiB | Stock |
 | `bosa` | `0x6d80000` | 256 KiB | Optical module calibration: never erase |
@@ -233,7 +233,7 @@ About 125 MiB between `0x6ec0000` and the bad-block pool is unused by stock.
 | `0x0` | TRX header, 256 bytes |
 | `0x100` | OpenWrt kernel (LZMA), padded with `0xff` |
 | `0x3e0000` | The bootloader's second stage ("bootram"), copied from the router |
-| `0x6e0000` | UBI (`mtd` partition `ubi`): `rootfs` (squashfs) and `rootfs_data` (settings) |
+| `0x6e0000` | UBI (`mtd` partition `ubi`): `rootfs` (squashfs), `rootfs_data` (settings) and `calibration` (Wi-Fi) |
 
 The space between the bootram and UBI is unused, for the reason below.
 
@@ -260,6 +260,45 @@ purpose (`/etc/init.d/bootcount`). `en75_chboot openwrt` and
 `en75_chboot factory` switch the active slot. To read the flag:
 `dd if=/dev/mtd13 bs=24 count=1 | hexdump -C` (check the partition number
 in `/proc/mtd`).
+
+## Wi-Fi calibration
+
+Each radio needs its unit's RF calibration, a 512-byte EEPROM table. The
+stock firmware keeps them as files in its settings, the UBIFS volume
+`configfs` on `config`, mounted at `/configs`:
+
+| Radio | File |
+|---|---|
+| MT7592, 2.4 GHz | `/configs/RT30xxEEPROM.bin` |
+| MT7612E, 5 GHz | `/configs/bin_ac/RT30xxEEPROM.bin` |
+
+There is no other copy in flash, and the chips' efuses hold almost nothing
+(the driver shows them as `otp` in debugfs), so they can't stand in. The
+mt76 driver can't read files: it takes calibration from the device tree,
+a raw flash offset or an NVMEM cell.
+
+So `sysupgrade` copies the two tables into a static UBI volume,
+`calibration`, next to OpenWrt's root. Static volumes carry a CRC, and
+upgrades leave the volume alone. The kernel's UBI NVMEM support
+(`CONFIG_MTD_UBI_NVMEM`) turns it into NVMEM cells that the device tree
+gives the radios:
+
+| Offset | Contents |
+|---|---|
+| `0x0` | 2.4 GHz table, then 512 zero bytes (the mt7603 driver reads 1 KiB) |
+| `0x400` | 5 GHz table |
+
+To read them, `sysupgrade` attaches the stock UBI and mounts it read-only.
+`config` is read-only in the device tree, so UBI can't write to it, and the
+upgrade refuses to attach it otherwise. The volume has to exist before the
+upgrade creates `rootfs_data` from all the free space. So if it's missing,
+the upgrade removes `rootfs_data` and creates the volume first;
+`rootfs_data` is recreated right after, and the settings to keep are saved
+in RAM by then.
+
+The RAM-test image doesn't attach slot A's UBI, so it carries the reference
+unit's tables instead. Other units' radios work with them, but may perform
+a little worse.
 
 ## MAC addresses
 

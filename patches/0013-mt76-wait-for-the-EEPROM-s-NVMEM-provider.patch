@@ -1,0 +1,82 @@
+From 2a6d383cbc1e3fc84552d5374dc085fc9f94e355 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 20:10:19 +0000
+Subject: [PATCH 13/14] mt76: wait for the EEPROM's NVMEM provider
+
+mt76_eeprom_init() treats every error from the EEPROM lookup as "not
+found", so when the NVMEM provider of the "eeprom" cell isn't there
+yet, the driver carries on without calibration. The MT7603 then uses
+its efuse, which is nearly empty on boards that keep the calibration in
+flash, and on a Nokia G-140W-C that locked the system up right after
+the MT7592's firmware was loaded.
+
+Return -EPROBE_DEFER instead, so the probe waits for the provider, as
+it already does for the MAC address cell.
+---
+ package/kernel/mt76/Makefile                  |  2 +-
+ ...-probe-while-eeprom-nvmem-is-missing.patch | 40 +++++++++++++++++++
+ 2 files changed, 41 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/mt76/patches/102-wifi-mt76-defer-probe-while-eeprom-nvmem-is-missing.patch
+
+diff --git a/package/kernel/mt76/Makefile b/package/kernel/mt76/Makefile
+index dc69493a7f..5c4ed7909c 100644
+--- a/package/kernel/mt76/Makefile
++++ b/package/kernel/mt76/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mt76
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_LICENSE:=BSD-3-Clause-Clear
+ PKG_LICENSE_FILES:=
+diff --git a/package/kernel/mt76/patches/102-wifi-mt76-defer-probe-while-eeprom-nvmem-is-missing.patch b/package/kernel/mt76/patches/102-wifi-mt76-defer-probe-while-eeprom-nvmem-is-missing.patch
+new file mode 100644
+index 0000000000..8d5dd5c943
+--- /dev/null
++++ b/package/kernel/mt76/patches/102-wifi-mt76-defer-probe-while-eeprom-nvmem-is-missing.patch
+@@ -0,0 +1,40 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Date: Sat, 14 Nov 2026 19:20:00 +0530
++Subject: [PATCH] wifi: mt76: defer probe while the EEPROM's NVMEM provider is
++ missing
++
++mt76_eeprom_init() turns every error from mt76_get_of_eeprom() into "not
++found", so when the NVMEM provider of the "eeprom" cell hasn't registered
++yet, the driver goes on without calibration. The MT7603 then takes the
++contents of its efuse instead, which is empty on boards that keep the
++calibration in flash, and with those values a Nokia G-140W-C locked up
++hard right after loading the MT7592's firmware.
++
++Pass -EPROBE_DEFER on, so the probe waits for the provider, as it does
++for the MAC address cell.
++
++--- a/eeprom.c
+++++ b/eeprom.c
++@@ -548,11 +548,21 @@
++ int
++ mt76_eeprom_init(struct mt76_dev *dev, int len)
++ {
+++	int ret;
+++
++ 	dev->eeprom.size = len;
++ 	dev->eeprom.data = devm_kzalloc(dev->dev, len, GFP_KERNEL);
++ 	if (!dev->eeprom.data)
++ 		return -ENOMEM;
++ 
++-	return !mt76_get_of_eeprom(dev, dev->eeprom.data, len);
+++	/*
+++	 * The calibration's NVMEM provider isn't there yet: wait for it
+++	 * instead of bringing the radio up without calibration.
+++	 */
+++	ret = mt76_get_of_eeprom(dev, dev->eeprom.data, len);
+++	if (ret == -EPROBE_DEFER)
+++		return ret;
+++
+++	return !ret;
++ }
++ EXPORT_SYMBOL_GPL(mt76_eeprom_init);
+-- 
+2.43.0
+

@@ -68,8 +68,10 @@ OpenWrt boots on the serial console. Press Enter to get a root shell.
 
   Set the netmask together with the address: without it the LAN ends up as a
   /32 and DHCP refuses to start. LuCI then moves to `http://192.168.50.1`.
-- Wi-Fi is off by default. To turn it on from the serial console, with your
-  own country code and password:
+- Wi-Fi is off by default. The RAM-test image uses the reference unit's
+  calibration, so your radios may perform a little worse than once
+  installed. To turn Wi-Fi on from the serial console, with your own
+  country code and password:
 
   ```
   for r in 0 1; do uci set wireless.radio$r.country=IN; uci set wireless.default_radio$r.encryption=psk2; uci set wireless.default_radio$r.key='your-password'; uci set wireless.default_radio$r.disabled=0; done; uci commit wireless; wifi reload

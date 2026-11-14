@@ -1,7 +1,7 @@
 From 0ef9a0e75db2bbe72e6fd56cd64827b9af442c26 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:53:51 +0000
-Subject: [PATCH 10/12] econet: en751221: support the MT7530 module of the
+Subject: [PATCH 10/14] econet: en751221: support the MT7530 module of the
  EN7526G
 
 The MT7530 module of the EN7526G is linked over TRGMII to the on-die

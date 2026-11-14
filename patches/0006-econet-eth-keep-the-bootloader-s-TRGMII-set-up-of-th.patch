@@ -1,7 +1,7 @@
 From e15a096d5882c06964f326df2b233ef4b4ed5b0e Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 11:13:07 +0000
-Subject: [PATCH 06/12] econet-eth: keep the bootloader's TRGMII set-up of the
+Subject: [PATCH 06/14] econet-eth: keep the bootloader's TRGMII set-up of the
  on-die switch
 
 The driver resets the on-die switch at probe. On the EN7526G, that reset

@@ -1,7 +1,7 @@
 From a3622b025452d91fd085c75c8a78e60e8539e7e7 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 07:05:52 +0000
-Subject: [PATCH 4/9] econet-eth: align the IP header of received packets
+Subject: [PATCH 04/12] econet-eth: align the IP header of received packets
 
 The QDMA stores each received frame at the start of its buffer, and the
 driver builds the skb there with no headroom. The IP header then sits 2
@@ -137,3 +137,6 @@ index 0000000000..0ffa46ce7c
 + 	set_qregs_qcfg_msg_word_swap(&qcfg, true);
 + 	set_qregs_qcfg_dscp_byte_swap(&qcfg, qdma->soc->dscp_byte_swap);
 + 	set_qregs_qcfg_payload_byte_sw(&qcfg, true);
+-- 
+2.43.0
+

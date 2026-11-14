@@ -1,0 +1,152 @@
+From f2428b69ebdb4ba1d21636df9ace9e43f3d8a612 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:21:18 +0000
+Subject: [PATCH 08/12] econet-eth: reset the TRGMII receiver when the port is
+ opened
+
+On the EN7526G the LAN ports are on an MT7530 that is linked to port 5
+of the on-die switch over TRGMII. The mt7530 driver resets that switch
+and sets it up again after econet-eth has probed, so the MT7530's
+transmitter stops and restarts under our receiver. On some of those
+restarts the receiver locks on badly: every frame from the MT7530 then
+arrives with a bad CRC, and the router can send but receives nothing.
+
+On a Nokia G-140W-C this happened on 4 of 52 driver loads, with every
+link register holding the bootloader's values. Pulsing RX_RST in the
+receiver's clock control register (0x7a00, laid out like the MT7530's)
+brought clean frames back at once, in both cases it was tried on.
+
+Add a patch that pulses it when the GDM1 port is opened, after the
+switch driver has set up its end of the link, if port 5 is in TRGMII
+mode. With it, 40 driver loads in a row came up with no CRC errors.
+---
+ package/kernel/econet-eth/Makefile            |   2 +-
+ .../105-reset-trgmii-receiver-on-open.patch   | 103 ++++++++++++++++++
+ 2 files changed, 104 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/105-reset-trgmii-receiver-on-open.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index deabba42a5..f4f6d40dbd 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=6
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/105-reset-trgmii-receiver-on-open.patch b/package/kernel/econet-eth/patches/105-reset-trgmii-receiver-on-open.patch
+new file mode 100644
+index 0000000000..2c11fd7755
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/105-reset-trgmii-receiver-on-open.patch
+@@ -0,0 +1,103 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] reset the TRGMII receiver when the port is opened
++
++On the EN7526G the LAN ports are on an MT7530 that is linked to port 5
++of the on-die switch over TRGMII. The mt7530 driver resets that switch
++and sets it up again after econet-eth has probed, so the MT7530's
++transmitter stops and restarts under our receiver. On some of those
++restarts the receiver locks on badly: from then on every frame from the
++MT7530 arrives with a bad CRC, port 5 counts no good frames at all, and
++the router can send but receives nothing.
++
++On the Nokia G-140W-C this happened on 4 of 52 driver loads, with all
++link registers holding the values the bootloader set. Pulsing RX_RST in
++the receiver's clock control (0x7a00, laid out like the MT7530's)
++brought clean frames back straight away in both cases it was tried on.
++
++Pulse it when the GDM1 port is opened, which happens after the switch
++driver has set up its end of the link, if port 5 is in TRGMII mode.
++
++---
++--- a/econet_eth.c
+++++ b/econet_eth.c
++@@ -93,6 +93,16 @@
++ #define SWITCH_MAC_LO			0x30e4
++ 
++ /*
+++ * The on-die switch's end of a TRGMII link, laid out like the MT7530's:
+++ * the port interface mode and the receive clock control.
+++ */
+++#define EN75_TRGMII_INTF_MODE		0x7830
+++#define  EN75_INTF_MODE_MASK		GENMASK(1, 0)
+++#define  EN75_INTF_MODE_TRGMII		1
+++#define EN75_TRGMII_RCK_CTRL		0x7a00
+++#define  EN75_TRGMII_RX_RST		BIT(31)
+++
+++/*
++  * PHY indirect access controller of the on-die switch. It is the SoC's MDIO
++  * master: besides the on-die switch's own PHYs it reaches whatever sits on
++  * the external MDIO pins, such as the MT7530 multi-chip module of the
++@@ -244,6 +254,40 @@
++ 	return 0;
++ }
++ 
+++/*
+++ * Reset the receiver of the on-die switch's TRGMII link, if it has one.
+++ *
+++ * The MT7530 at the other end is reset and set up again by its own driver,
+++ * after ours has probed. Its transmitter stops and restarts, and on some
+++ * of those restarts our receiver locks on badly: from then on every frame
+++ * from the MT7530 arrives with a bad CRC, while the other direction keeps
+++ * working. A pulse on the receiver's reset makes it lock on again, and the
+++ * frames come through clean. On the Nokia G-140W-C the bad lock happened
+++ * on a few percent of driver loads.
+++ *
+++ * The port is opened after the switch driver has set up its end, so do it
+++ * then.
+++ */
+++void en75_port_reset_trgmii_rx(struct en75_eth *eth, enum etx_fport portn)
+++{
+++	struct en75_eth_pvt *ep = (struct en75_eth_pvt *) eth;
+++	u32 __iomem *reg = ep->regs->switch_regs;
+++	u32 __iomem *rck = &reg[EN75_TRGMII_RCK_CTRL / 4];
+++	u32 val;
+++
+++	if (!ep->has_switch_regs || portn != ETX_FPORT_GDM1)
+++		return;
+++
+++	val = readl(&reg[EN75_TRGMII_INTF_MODE / 4]);
+++	if (FIELD_GET(EN75_INTF_MODE_MASK, val) != EN75_INTF_MODE_TRGMII)
+++		return;
+++
+++	val = readl(rck) & ~EN75_TRGMII_RX_RST;
+++	writel(val | EN75_TRGMII_RX_RST, rck);
+++	usleep_range(1000, 2000);
+++	writel(val, rck);
+++}
+++
++ static int en75_mdio_cmd(struct en75_eth_pvt *eth, u32 cmd, u16 *data)
++ {
++ 	u32 __iomem *reg = &eth->regs->switch_regs[EN75_PHY_IAC / 4];
++--- a/econet_eth.h
+++++ b/econet_eth.h
++@@ -175,6 +175,9 @@
++ int en75_port_set_macaddr(struct en75_eth *eth, enum etx_fport portn,
++ 			  const u8 *addr);
++ 
+++/* Called from the port driver when the port is opened; may sleep */
+++void en75_port_reset_trgmii_rx(struct en75_eth *eth, enum etx_fport portn);
+++
++ struct en75_qdma_cfg {
++ 	int num_rx_descs[QDMA_NUM_CHAINS];
++ 	int num_tx_descs[QDMA_NUM_CHAINS];
++--- a/econet_port.c
+++++ b/econet_port.c
++@@ -143,6 +143,8 @@
++ 	struct en75_gdm_port *port = netdev_priv(dev);
++ 	struct gdm_len_th rlt;
++ 
+++	en75_port_reset_trgmii_rx(port->eth, port->fport);
+++
++ 	netif_tx_start_all_queues(dev);
++ 
++ 	/* TX-done completions are reported with ~3 ms latency. BQL reacts
+-- 
+2.43.0
+

@@ -1,7 +1,7 @@
 From 3095f21b699e854370caa5450e61e67c75bc8314 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 07:05:52 +0000
-Subject: [PATCH 5/9] econet-eth: use 512 RX descriptors
+Subject: [PATCH 05/12] econet-eth: use 512 RX descriptors
 
 The 128 RX descriptors hold about 1.5 ms of traffic at gigabit line rate.
 When a TCP sender in slow start bursts faster than the CPU forwards, the
@@ -70,3 +70,6 @@ index 0000000000..56c54787f4
 + 		.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV,
 + 		.dma_dir = DMA_FROM_DEVICE,
 + 		.max_len = PAGE_SIZE,
+-- 
+2.43.0
+

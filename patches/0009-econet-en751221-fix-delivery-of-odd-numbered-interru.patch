@@ -1,7 +1,8 @@
-From 6167bfb3249f88b712f0c96e1afac637243d214b Mon Sep 17 00:00:00 2001
+From 8cae4ba1e8e15276f6f2c66cbc8dfbee426c1943 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 08:36:59 +0000
-Subject: [PATCH 6/9] econet: en751221: fix delivery of odd-numbered interrupts
+Subject: [PATCH 09/12] econet: en751221: fix delivery of odd-numbered
+ interrupts
 
 In the MIPS interrupt compatibility mode, the EN751221 interrupt
 controller presents the number of the pending interrupt plus one, in
@@ -140,3 +141,6 @@ index 0000000000..1535046e6f
 + 	return 0;
 + 
 + err_unmap:
+-- 
+2.43.0
+

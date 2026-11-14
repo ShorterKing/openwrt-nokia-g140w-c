@@ -3,13 +3,11 @@
 This loads an OpenWrt kernel into RAM through the bootloader and runs it. It
 doesn't install anything: power-cycle the router and it boots stock again.
 
-> **Use the RAM-test image for testing.** While booting, the production
-> image reads the start of slot A to look for UBI. If that block is worn,
-> the NAND bad-block driver remaps it, which writes to flash. This happened
-> once on the reference unit, inside slot A, which held only an old stock
-> copy. The RAM-test image turns remapping off for slot A and doesn't look
-> for UBI there. Over several RAM boots on the reference unit it recorded no
-> new remaps.
+> **Use the RAM-test image for testing.** The production image attaches
+> and mounts the UBI area in slot A if it finds one, so on a router with
+> OpenWrt installed, a RAM boot would use (and write to) its settings. The
+> RAM-test image leaves slot A alone. Use the production image only to
+> install, as in [install.md](install.md).
 
 ## You need
 
@@ -22,7 +20,7 @@ doesn't install anything: power-cycle the router and it boots stock again.
     It's the same as production (switch under DSA, LAN4 = WAN), but it
     never writes slot A and checks the bad-block pool size. Use this one.
   - `...-nokia_g140w-c-initramfs-kernel.bin`: production image, used for
-    installing.
+    [installing](install.md).
 
 ## Steps
 
@@ -81,4 +79,5 @@ OpenWrt boots on the serial console. Press Enter to get a root shell.
 - When measuring speed from a PC that is also on another network over
   Wi-Fi, turn its Wi-Fi off first. Windows can send IPv6 traffic over the
   Wi-Fi and bypass the router.
-- Settings are lost on power-off; this is a RAM session only.
+- Settings are lost on power-off; this is a RAM session only. To keep
+  OpenWrt, [install it](install.md).

@@ -1,0 +1,108 @@
+From e15a096d5882c06964f326df2b233ef4b4ed5b0e Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 11:13:07 +0000
+Subject: [PATCH 06/12] econet-eth: keep the bootloader's TRGMII set-up of the
+ on-die switch
+
+The driver resets the on-die switch at probe. On the EN7526G, that reset
+clears the registers the bootloader uses to set up the TRGMII link to
+the MT7530 module: the trap override (0x7804), the interface mode
+(0x7830) and the pad termination (0x7a54 + n * 8, 0x7a7c). The link then
+runs on reset defaults. That usually works, but on a Nokia G-140W-C it
+once started corrupting every frame from the MT7530: port 5 of the
+on-die switch counted only CRC errors until a power cycle.
+
+Add a patch that saves those registers before the reset and restores
+them afterwards. With the bootloader's values, the link carried
+full-speed downloads with no CRC errors.
+---
+ package/kernel/econet-eth/Makefile            |  2 +-
+ .../103-keep-bootloader-trgmii-setup.patch    | 63 +++++++++++++++++++
+ 2 files changed, 64 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/103-keep-bootloader-trgmii-setup.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index e2d58c7ee3..5936343061 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/103-keep-bootloader-trgmii-setup.patch b/package/kernel/econet-eth/patches/103-keep-bootloader-trgmii-setup.patch
+new file mode 100644
+index 0000000000..3d91239afb
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/103-keep-bootloader-trgmii-setup.patch
+@@ -0,0 +1,63 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] keep the bootloader TRGMII set-up of the on-die switch
++
++The switch reset at probe clears the on-die switch registers that the
++bootloader uses to set up the TRGMII link to the MT7530 module (trap
++override, interface mode, pad settings). The link then runs untuned, and
++on a Nokia G-140W-C it once started corrupting every received frame.
++Save those registers before the reset and restore them afterwards.
++
++---
++--- a/econet_eth.c
+++++ b/econet_eth.c
++@@ -384,6 +384,20 @@ static int en75_init_port(struct en75_et
++ 	return 0;
++ }
++ 
+++/*
+++ * The bootloader sets up the TRGMII link between the on-die switch and the
+++ * MT7530 module, including on-die switch registers that the switch reset
+++ * clears: the trap override, the port interface mode and the TRGMII pad
+++ * settings. Without them the link runs untuned, and it can end up
+++ * corrupting every frame from the MT7530. Save them before the reset and
+++ * put them back afterwards.
+++ */
+++static const u16 en75_trgmii_regs[] = {
+++	0x7804, 0x7808, 0x7830, 0x7a00, 0x7a10, 0x7a18, 0x7a20, 0x7a28,
+++	0x7a30, 0x7a40, 0x7a50, 0x7a54, 0x7a58, 0x7a5c, 0x7a60, 0x7a64,
+++	0x7a68, 0x7a6c, 0x7a70, 0x7a74, 0x7a78, 0x7a7c,
+++};
+++
++ static void en75_prepare_qdma_cfg(struct en75_qdma_cfg *cfg,
++ 				  const struct en75_soc_data *soc)
++ {
++@@ -437,6 +451,7 @@ static int en75_probe(struct platform_de
++ 	struct en75_eth_pvt *eth;
++ 	struct en75_qdma_cfg cfg;
++ 	struct device_node *np;
+++	u32 trgmii[ARRAY_SIZE(en75_trgmii_regs)];
++ 	int i, err, irq;
++ 
++ 	eth = devm_kzalloc(&pdev->dev, sizeof(*eth), GFP_KERNEL);
++@@ -478,6 +493,10 @@ static int en75_probe(struct platform_de
++ 
++ 	eth->regs = regs;
++ 
+++	if (eth->has_switch_regs)
+++		for (i = 0; i < ARRAY_SIZE(en75_trgmii_regs); i++)
+++			trgmii[i] = readl(&regs->switch_regs[en75_trgmii_regs[i] / 4]);
+++
++ 	eth->reset = devm_reset_control_array_get_exclusive(&pdev->dev);
++ 	if (IS_ERR(eth->reset)) {
++ 		dev_warn(&pdev->dev, "failed to get resets %pe\n", eth->reset);
++@@ -492,6 +511,10 @@ static int en75_probe(struct platform_de
++ 			return err;
++ 	}
++ 
+++	if (eth->has_switch_regs)
+++		for (i = 0; i < ARRAY_SIZE(en75_trgmii_regs); i++)
+++			writel(trgmii[i], &regs->switch_regs[en75_trgmii_regs[i] / 4]);
+++
++ 	for (i = 0; i < ARRAY_SIZE(eth->qdma_irq); i++) {
++ 		irq = platform_get_irq(pdev, i);
++ 		if (irq < 0)
+-- 
+2.43.0
+

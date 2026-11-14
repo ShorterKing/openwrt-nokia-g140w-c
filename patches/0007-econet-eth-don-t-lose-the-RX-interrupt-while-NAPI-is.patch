@@ -1,0 +1,120 @@
+From 12e082312dce446387524973cbd467cfeb9366e1 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:21:17 +0000
+Subject: [PATCH 07/12] econet-eth: don't lose the RX interrupt while NAPI is
+ disabled
+
+The interrupt handler masks a ring's interrupt and schedules its NAPI,
+and only the NAPI poll unmasks it again. en75_qdma_use() turned DMA on
+before enabling NAPI, so frames that had queued up in the GDM while DMA
+was off landed at once, and their interrupt often came before NAPI was
+ready. Scheduling the disabled NAPI did nothing, the interrupt stayed
+masked, and the ring was never serviced again: it filled up and the GDM
+dropped every frame after that.
+
+On a Nokia G-140W-C on a busy network, this left the router unable to
+receive anything on some boots. eth0 counted about 580 frames (the ring
+plus what the GDM had buffered) and nothing more, with the RX interrupt
+masked in both the hardware and the driver's copy of the mask.
+
+Add a patch that enables NAPI before DMA, and polls every ring once
+after enabling, which also catches an interrupt that came while NAPI
+was being disabled. Each poll unmasks its interrupt when it completes.
+With it, the device received normally on 40 driver loads in a row and
+on every boot since.
+---
+ package/kernel/econet-eth/Makefile            |  2 +-
+ ...ose-rx-interrupt-while-napi-disabled.patch | 68 +++++++++++++++++++
+ 2 files changed, 69 insertions(+), 1 deletion(-)
+ create mode 100644 package/kernel/econet-eth/patches/104-dont-lose-rx-interrupt-while-napi-disabled.patch
+
+diff --git a/package/kernel/econet-eth/Makefile b/package/kernel/econet-eth/Makefile
+index 5936343061..deabba42a5 100644
+--- a/package/kernel/econet-eth/Makefile
++++ b/package/kernel/econet-eth/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=econet-eth
+-PKG_RELEASE:=5
++PKG_RELEASE:=6
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/cjdelisle/econet_eth.git
+diff --git a/package/kernel/econet-eth/patches/104-dont-lose-rx-interrupt-while-napi-disabled.patch b/package/kernel/econet-eth/patches/104-dont-lose-rx-interrupt-while-napi-disabled.patch
+new file mode 100644
+index 0000000000..48c422d1fe
+--- /dev/null
++++ b/package/kernel/econet-eth/patches/104-dont-lose-rx-interrupt-while-napi-disabled.patch
+@@ -0,0 +1,68 @@
++From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
++Subject: [PATCH] don't lose the RX interrupt while NAPI is disabled
++
++The interrupt handler masks a ring's interrupt and schedules its NAPI,
++and only the NAPI poll unmasks it again. If the interrupt comes while
++NAPI is disabled, napi_schedule() does nothing and the interrupt stays
++masked for good. The ring is then never serviced again: it fills up,
++and the GDM drops every frame after that.
++
++en75_qdma_use() turned DMA on before enabling NAPI. Frames that had
++queued up in the GDM while DMA was off landed straight away, and on a
++busy network their interrupt often came before NAPI was ready. On the
++Nokia G-140W-C this left the router deaf on some boots: eth0 counted
++the 511 frames that filled the ring (plus what the GDM had buffered)
++and nothing after them, the RX interrupt was masked and the driver's
++irqmask had RX cleared too, so setting the bit in hardware was undone
++by the next interrupt.
++
++Enable NAPI before DMA. Also poll every ring once after enabling, which
++catches an interrupt that came while NAPI was being disabled at close:
++each poll handles whatever is waiting and unmasks its interrupt when it
++completes.
++
++---
++--- a/econet_qdma.c
+++++ b/econet_qdma.c
++@@ -1160,16 +1160,39 @@
++ 	if (qdma->users++ > 0)
++ 		return 0;
++ 
+++	/* The interrupt handler masks a ring's interrupt and schedules its
+++	 * NAPI, and only the NAPI poll unmasks it again. If the interrupt
+++	 * comes while NAPI is disabled, scheduling does nothing and the
+++	 * interrupt stays masked for good: the ring is never serviced
+++	 * again, it fills up and the GDM drops everything after that.
+++	 *
+++	 * So enable NAPI before DMA. Frames that queued up in the GDM while
+++	 * DMA was off land as soon as it is on, and their interrupt must
+++	 * find NAPI ready.
+++	 */
+++	for (i = 0; i < ARRAY_SIZE(qdma->q_rx); i++)
+++		napi_enable(&qdma->q_rx[i].napi);
+++
+++	for (i = 0; i < ARRAY_SIZE(qdma->q_tx_done); i++)
+++		napi_enable(&qdma->q_tx_done[i].napi);
+++
++ 	qcfg = en75_rreg(&qdma->regs->qdma_cfg);
++ 	set_qregs_qcfg_rx_dma_en(&qcfg, true);
++ 	set_qregs_qcfg_tx_dma_en(&qcfg, true);
++ 	en75_wreg(qcfg, &qdma->regs->qdma_cfg);
++ 
+++	/* An interrupt can also come while NAPI is being disabled, when the
+++	 * device is closed, and stay masked. Poll every ring once: that
+++	 * handles anything already waiting, and each poll unmasks its
+++	 * interrupt when it completes.
+++	 */
+++	local_bh_disable();
++ 	for (i = 0; i < ARRAY_SIZE(qdma->q_rx); i++)
++-		napi_enable(&qdma->q_rx[i].napi);
+++		napi_schedule(&qdma->q_rx[i].napi);
++ 
++ 	for (i = 0; i < ARRAY_SIZE(qdma->q_tx_done); i++)
++-		napi_enable(&qdma->q_tx_done[i].napi);
+++		napi_schedule(&qdma->q_tx_done[i].napi);
+++	local_bh_enable();
++ 
++ 	return 0;
++ }
+-- 
+2.43.0
+

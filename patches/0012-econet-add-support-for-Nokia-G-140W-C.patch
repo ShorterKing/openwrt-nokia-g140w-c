@@ -1,7 +1,7 @@
-From 30e2aede4d5bc105744f0769d463691ce97dda33 Mon Sep 17 00:00:00 2001
+From 01f1653f1291259f38b5e6cae0860b417caa1364 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Thu, 12 Nov 2026 22:15:37 +0000
-Subject: [PATCH 9/9] econet: add support for Nokia G-140W-C
+Subject: [PATCH 12/12] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
 dual-band Wi-Fi, supplied by Airtel in India.
@@ -27,30 +27,56 @@ into firmware slot A ("tclinux"): a 4 MiB TRX kernel followed by UBI.
 Stock stays in slot B, and en75_chboot switches between them. LAN4 is
 the WAN port.
 
-The RAM-test variant ("bringup") uses the same device tree but never
-writes slot A: it turns off BMT remapping there and renames the UBI
-area so the UBI auto-attach doesn't read it. It also checks the vendor
-BMT pool size.
+Unlike on the G-240G-E, the bootloader loads its second stage (the
+"bootram", with the bldr> prompt) from the slot it boots: an LZMA blob
+after the kernel and rootfs in the slot's TRX, whose length is in the
+TRX header. Without it the bootloader crashes and only falls back to
+the other slot after nine failed boots. The bootram is Nokia's code, so
+the image doesn't carry it: sysupgrade copies it from the router, from
+slot A or else from the stock firmware in slot B, puts it at 0x3e0000
+after the kernel and updates the TRX header to match. The image check
+fails if no bootram can be found.
+
+The bootloader also counts boots in the "flag" partition and switches
+to the other slot when the count reaches nine. Stock clears it once it
+has booted, and an init script does the same for OpenWrt.
+
+Slot A has no BMT remapping. With it, a read error in old stock data
+makes the BMT driver remap the block, and the bootloader redoes such a
+remap on every boot once UBI has erased the replacement block, wiping
+UBI data. Test images had remapped blocks 36-58 of the reference unit
+that way, so UBI starts at block 59.
+
+The RAM-test variant ("bringup") uses the same device tree, but renames
+slot A's UBI area so that a RAM boot doesn't attach it and leaves an
+installed system untouched. It also checks the vendor BMT pool size.
 
 GRO is off on the switch ports by default. econet-eth has no checksum or
 scatter-gather offload, so the CPU would split and checksum every merged
 packet again before forwarding it: downloads through the device ran at
 97 Mbit/s with GRO and 111 Mbit/s without.
 
-Tested by loading the initramfs kernel through the bootloader's XMODEM
-command: Wi-Fi on both bands, LAN1-LAN3 bridged and LAN4 as WAN with
-DHCP, routing a 100 Mbit/s line at full speed. Installation: not final
-yet.
+Installation: boot the initramfs kernel through the bootloader's XMODEM
+command and run sysupgrade -n with the sysupgrade image. Before writing,
+it copies the bootram and selects slot A with en75_chboot. There is no
+factory image, since slot A needs the bootram, which only the router has.
+
+Tested on a G-140W-C: Wi-Fi on both bands, LAN1-LAN3 bridged and LAN4
+as WAN with DHCP, routing a 100 Mbit/s line at full speed, booting from
+flash with settings kept across reboots and the boot count cleared on
+each boot, and a sysupgrade of the installed system with settings kept.
 ---
  .../econet/base-files/etc/board.d/01_leds     |   6 +
  .../econet/base-files/etc/board.d/02_network  |  15 +
- .../econet/base-files/lib/upgrade/platform.sh |   6 +-
+ .../econet/base-files/etc/init.d/bootcount    |  14 +
+ .../econet/base-files/lib/upgrade/platform.sh | 166 +++++++
  .../linux/econet/base-files/sbin/en75_chboot  |  13 +
- .../dts/en751221_nokia_g140w-c-bringup.dts    |  34 ++
+ .../dts/en751221_nokia_g140w-c-bringup.dts    |  24 +
  .../econet/dts/en751221_nokia_g140w-c.dts     |  10 +
- .../econet/dts/en751221_nokia_g140w-c.dtsi    | 428 ++++++++++++++++++
- target/linux/econet/image/en751221.mk         |  32 ++
- 8 files changed, 542 insertions(+), 2 deletions(-)
+ .../econet/dts/en751221_nokia_g140w-c.dtsi    | 433 ++++++++++++++++++
+ target/linux/econet/image/en751221.mk         |  35 ++
+ 9 files changed, 716 insertions(+)
+ create mode 100755 target/linux/econet/base-files/etc/init.d/bootcount
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
@@ -105,30 +131,213 @@ index 8bb6b25b0b..376cc7a08a 100644
  	huawei,hg2821t-u)
  		local conffile="/tmp/configuration_a/factory.conf"
  		lan_mac=$(get_mac_ascii "$conffile" brmac)
+diff --git a/target/linux/econet/base-files/etc/init.d/bootcount b/target/linux/econet/base-files/etc/init.d/bootcount
+new file mode 100755
+index 0000000000..0d91529afb
+--- /dev/null
++++ b/target/linux/econet/base-files/etc/init.d/bootcount
+@@ -0,0 +1,14 @@
++#!/bin/sh /etc/rc.common
++# The tcboot bootloader adds 1 to boot_fail_num in the flag partition on
++# every power-up and switches to the other firmware slot when it reaches 9.
++# The stock firmware clears it once it has booted, so OpenWrt does the same:
++# rewriting the OpenWrt boot flag sets the count back to 0.
++
++START=99
++
++boot() {
++	[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "nokia,g140w-c" ] || return 0
++	# Only when running from flash, not from a RAM-booted image
++	grep -q '^/dev/ubiblock' /proc/mounts || grep -q ' /rom ' /proc/mounts || return 0
++	/sbin/en75_chboot openwrt >/dev/null 2>&1
++}
 diff --git a/target/linux/econet/base-files/lib/upgrade/platform.sh b/target/linux/econet/base-files/lib/upgrade/platform.sh
-index 19c0072e63..8f967f7242 100644
+index 19c0072e63..9d32e50e8e 100644
 --- a/target/linux/econet/base-files/lib/upgrade/platform.sh
 +++ b/target/linux/econet/base-files/lib/upgrade/platform.sh
-@@ -6,7 +6,8 @@ platform_check_image() {
- 	dasan,h660gm-a-airtel|\
- 	dasan,h660gm-a-generic|\
- 	jiofiber,jcow407|\
--	jiofiber,jcow414)
-+	jiofiber,jcow414|\
+@@ -1,3 +1,152 @@
++# The Nokia G-140W-C's bootloader loads a second stage ("bootram", the one
++# with the bldr> prompt) from the firmware slot it boots. It sits after the
++# kernel and rootfs in the slot's TRX, and its length is in the TRX header.
++# Without it the bootloader crashes, and it only falls back to the other
++# slot after nine failed boots. The bootram is Nokia's code, so the image
++# can't carry it: copy it from the router, from slot A or else from the stock
++# firmware in slot B, and put it after the kernel.
++G140WC_TRX_MAGIC=$((0x32524448))	# "2RDH"
++G140WC_BOOTRAM_OFS=$((0x3e0000))
++G140WC_BOOTRAM_MAX=$((0x20000))
++
++# <file> <offset>: big-endian u32 at <offset>, a multiple of 4
++g140wc_get32() {
++	local v=$(dd if="$1" bs=4 skip=$(($2 / 4)) count=1 2>/dev/null | \
++		hexdump -v -e '1/1 "%02x"')
++
++	echo $((0x${v:-0}))
++}
++
++# <file> <offset> <value>: store a big-endian u32 at <offset>
++g140wc_put32() {
++	printf "$(printf '\\%03o\\%03o\\%03o\\%03o' \
++		$(($3 >> 24 & 255)) $(($3 >> 16 & 255)) \
++		$(($3 >> 8 & 255)) $(($3 & 255)))" | \
++		dd of="$1" bs=4 seek=$(($2 / 4)) conv=notrunc 2>/dev/null
++}
++
++g140wc_mtd_size() {
++	local size=$(grep "\"$1\"" /proc/mtd | cut -d' ' -f2)
++
++	[ -n "$size" ] && echo $((0x$size))
++}
++
++# <partition> <offset> <length> <file>: copy bytes out of an MTD partition
++g140wc_mtd_read() {
++	local mtd=$(find_mtd_index "$1")
++	local ofs=$(($2 % 4096))
++	local tmp=/tmp/g140wc.chunk
++
++	[ -n "$mtd" ] || return 1
++	dd if=/dev/mtd$mtd of=$tmp bs=4096 skip=$(($2 / 4096)) \
++		count=$(((ofs + $3 + 4095) / 4096)) 2>/dev/null || return 1
++	tail -c +$((ofs + 1)) $tmp > $tmp.2
++	dd if=$tmp.2 of="$4" bs=$3 count=1 2>/dev/null
++	rm -f $tmp $tmp.2
++	[ "$(wc -c < "$4")" -eq "$3" ]
++}
++
++# <partition> <next partition> <file>: copy the bootram of the TRX at the
++# start of <partition>. It may lie in <next partition>, which follows it on
++# flash.
++g140wc_copy_bootram() {
++	local part="$1" next="$2" out="$3"
++	local hdr=/tmp/g140wc.hdr
++	local size len ofs
++
++	size=$(g140wc_mtd_size "$part")
++	[ -n "$size" ] || return 1
++	g140wc_mtd_read "$part" 0 256 $hdr || return 1
++	[ "$(g140wc_get32 $hdr 0)" = "$G140WC_TRX_MAGIC" ] || return 1
++	len=$(g140wc_get32 $hdr 148)
++	ofs=$((256 + $(g140wc_get32 $hdr 80) + $(g140wc_get32 $hdr 84)))
++	rm -f $hdr
++	[ "$len" -gt 0 ] && [ "$len" -le "$G140WC_BOOTRAM_MAX" ] || return 1
++
++	if [ $((ofs + len)) -gt "$size" ]; then
++		[ -n "$next" ] && [ "$ofs" -ge "$size" ] || return 1
++		part="$next"
++		ofs=$((ofs - size))
++	fi
++	g140wc_mtd_read "$part" "$ofs" "$len" "$out" || return 1
++
++	# LZMA, with the properties byte all known bootrams have
++	[ "$(dd if="$out" bs=1 count=1 2>/dev/null | hexdump -v -e '1/1 "%02x"')" = "5d" ]
++}
++
++g140wc_get_bootram() {
++	g140wc_copy_bootram tclinux_kernel "" "$1" ||
++		g140wc_copy_bootram kernel_slave rootfs_slave "$1"
++}
++
++# <sysupgrade image> <output tar>: the same image, with the bootram added to
++# the kernel at G140WC_BOOTRAM_OFS and the TRX header updated to match
++g140wc_add_bootram() {
++	local img="$1" out="$2"
++	local dir=/tmp/g140wc-upgrade
++	local board_dir kernel len
++
++	rm -rf $dir
++	mkdir -p $dir || return 1
++	g140wc_get_bootram $dir/bootram || {
++		echo "Can't find the bootloader's second stage (bootram) in slot A or B"
++		return 1
++	}
++	len=$(wc -c < $dir/bootram)
++
++	tar xf "$img" -C $dir || return 1
++	board_dir=$(cd $dir && ls -d sysupgrade-*)
++	kernel=$dir/$board_dir/kernel
++	[ -d "$dir/$board_dir" ] && [ -f "$kernel" ] && \
++	[ "$(g140wc_get32 $kernel 0)" = "$G140WC_TRX_MAGIC" ] || {
++		echo "The image has no TRX kernel"
++		return 1
++	}
++
++	# Everything from G140WC_BOOTRAM_OFS on must be padding
++	if dd if=$kernel bs=$G140WC_BOOTRAM_OFS skip=1 2>/dev/null | \
++	   hexdump -e '16/1 "%02x" "\n"' | \
++	   grep -q -v -e '^f\{32\}$' -e '^\*$'; then
++		echo "The kernel doesn't fit in front of the bootram"
++		return 1
++	fi
++
++	dd if=$kernel of=$kernel.new bs=$G140WC_BOOTRAM_OFS count=1 2>/dev/null
++	cat $dir/bootram >> $kernel.new
++	rm $dir/bootram
++	[ "$(wc -c < $kernel.new)" -eq $((G140WC_BOOTRAM_OFS + len)) ] || return 1
++
++	g140wc_put32 $kernel.new 8 $((G140WC_BOOTRAM_OFS + len))	# total
++	g140wc_put32 $kernel.new 80 $((G140WC_BOOTRAM_OFS - 256))	# kernel
++	g140wc_put32 $kernel.new 84 0					# rootfs
++	g140wc_put32 $kernel.new 148 $len				# bootram
++
++	# CRC-32/JAMCRC of everything after the header. gzip computes the
++	# CRC-32 and stores it little-endian in its trailer.
++	set -- $(dd if=$kernel.new bs=256 skip=1 2>/dev/null | gzip -1 -c | \
++		tail -c 8 | hexdump -n 4 -v -e '4/1 "%02x "')
++	[ $# = 4 ] || return 1
++	g140wc_put32 $kernel.new 12 $((0x$4$3$2$1 ^ 0xffffffff))
++	mv $kernel.new $kernel
++
++	tar cf "$out.tmp" -C $dir "$board_dir" || return 1
++	rm -rf $dir
++	mv "$out.tmp" "$out"
++}
++
++platform_pre_upgrade() {
++	case "$(board_name)" in
 +	nokia,g140w-c)
++		# Runs before the switch to the ramfs, with all tools at hand.
++		# Boot slot A next, which matters when installing from a RAM
++		# boot, once the image is ready to be written there.
++		rm -f /tmp/g140wc-sysupgrade.tar
++		g140wc_add_bootram "$1" /tmp/g140wc-sysupgrade.tar && \
++			/sbin/en75_chboot openwrt
++		;;
++	esac
++}
++
+ platform_check_image() {
+ 	local board=$(board_name)
+ 
+@@ -9,6 +158,14 @@ platform_check_image() {
+ 	jiofiber,jcow414)
  		return 0
  		;;
- 	esac
-@@ -22,7 +23,8 @@ platform_do_upgrade() {
- 	dasan,h660gm-a-airtel|\
- 	dasan,h660gm-a-generic|\
- 	jiofiber,jcow407|\
--	jiofiber,jcow414)
-+	jiofiber,jcow414|\
 +	nokia,g140w-c)
++		g140wc_get_bootram /tmp/g140wc.bootram || {
++			echo "Can't find the bootloader's second stage (bootram) in slot A or B"
++			return 1
++		}
++		rm -f /tmp/g140wc.bootram
++		return 0
++		;;
+ 	esac
+ 
+ 	return 1
+@@ -26,5 +183,14 @@ platform_do_upgrade() {
  		CI_KERNPART="tclinux_kernel"
  		nand_do_upgrade "$1"
  		;;
++	nokia,g140w-c)
++		# Prepared by platform_pre_upgrade
++		[ -f /tmp/g140wc-sysupgrade.tar ] || {
++			echo "The image could not be prepared, not writing it"
++			return 1
++		}
++		CI_KERNPART="tclinux_kernel"
++		nand_do_upgrade /tmp/g140wc-sysupgrade.tar
++		;;
+ 	esac
+ }
 diff --git a/target/linux/econet/base-files/sbin/en75_chboot b/target/linux/econet/base-files/sbin/en75_chboot
 index 165a3ebb7b..6a8968547f 100755
 --- a/target/linux/econet/base-files/sbin/en75_chboot
@@ -155,10 +364,10 @@ index 165a3ebb7b..6a8968547f 100755
          part=$(part_named '"reservearea"')
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
 new file mode 100644
-index 0000000000..1eb82dd241
+index 0000000000..a9f635bf4c
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,24 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +
 +/dts-v1/;
@@ -166,11 +375,9 @@ index 0000000000..1eb82dd241
 +#include "en751221_nokia_g140w-c.dtsi"
 +
 +/*
-+ * RAM-test image: the production device tree, except that it never writes
-+ * slot A. The vendor BMT driver remaps a worn block even when it is only
-+ * read, and OpenWrt's UBI auto-attach reads the first block of "ubi" at boot.
-+ * So remapping is switched off for slot A and its UBI area is renamed.
-+ * Not meant to be flashed.
++ * RAM-test image: the production device tree, except that slot A's UBI
++ * area is renamed, so OpenWrt doesn't attach and mount it at boot. A RAM
++ * boot then leaves an installed OpenWrt untouched. Not meant to be flashed.
 + */
 +/ {
 +	model = "Nokia G-140W-C (RAM test)";
@@ -180,14 +387,6 @@ index 0000000000..1eb82dd241
 +/* Bootloader log: "bmt pool size: 163". Abort BMT setup if we disagree. */
 +&nand {
 +	econet,assert-reserve-size = <163>;
-+};
-+
-+&slot_a {
-+	/delete-property/ econet,enable-remap;
-+};
-+
-+&slot_a_kernel {
-+	/delete-property/ econet,enable-remap;
 +};
 +
 +&slot_a_ubi {
@@ -211,10 +410,10 @@ index 0000000000..c073bfb375
 +};
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
 new file mode 100644
-index 0000000000..115b21e1c7
+index 0000000000..6dc94c0ebf
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dtsi
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,433 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +/*
 + * Nokia G-140W-C (EcoNet EN7526G, 512 MiB DDR3, 256 MiB SPI-NAND W25M02GV,
@@ -358,22 +557,27 @@ index 0000000000..115b21e1c7
 +		 * factory image across all of it; OpenWrt splits it into a raw
 +		 * TRX kernel and a UBI area holding rootfs + rootfs_data.
 +		 * Slot B ("kernel_slave"/"rootfs_slave") keeps the stock firmware.
++		 *
++		 * Slot A has no econet,enable-remap. With it, a read error in
++		 * old stock data makes the BMT driver remap the block, and the
++		 * bootloader redoes such a remap on every boot once UBI has
++		 * erased the replacement block and its mapping mark, which
++		 * wipes UBI data. Test images had remapped blocks 36-58 of the
++		 * reference unit that way, so UBI starts after them, at block 59.
 +		 */
 +		slot_a: partition@80000 {
 +			label = "tclinux";
 +			reg = <0x80000 0x2200000>;
-+			econet,enable-remap;
 +		};
 +
 +		slot_a_kernel: partition1@80000 {
 +			label = "tclinux_kernel";
 +			reg = <0x80000 0x400000>;
-+			econet,enable-remap;
 +		};
 +
-+		slot_a_ubi: partition@480000 {
++		slot_a_ubi: partition@760000 {
 +			label = "ubi";
-+			reg = <0x480000 0x1e00000>;
++			reg = <0x760000 0x1b20000>;
 +		};
 +
 +		/* Stock firmware stays here: fallback via the bootloader flag */
@@ -644,10 +848,10 @@ index 0000000000..115b21e1c7
 +	};
 +};
 diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
-index ec96a5ac20..b354e8b11e 100644
+index ec96a5ac20..6e9073caed 100644
 --- a/target/linux/econet/image/en751221.mk
 +++ b/target/linux/econet/image/en751221.mk
-@@ -54,6 +54,38 @@ define Device/nokia_g240g-e
+@@ -54,6 +54,41 @@ define Device/nokia_g240g-e
  endef
  TARGET_DEVICES += nokia_g240g-e
  
@@ -660,7 +864,10 @@ index ec96a5ac20..b354e8b11e 100644
 +  DEVICE_VENDOR := Nokia
 +  DEVICE_MODEL := G-140W-C
 +  DEVICE_DTS := en751221_nokia_g140w-c
-+  FACTORY_SIZE := 34m
++  # No tclinux.trx: slot A also needs the bootloader's second stage, which
++  # only the router has, and UBI starts at 0x760000. sysupgrade from the
++  # RAM-booted initramfs installs it (see platform.sh).
++  IMAGES := sysupgrade.bin
 +  TRX_LOADADDR := 0x80002000
 +  KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \
 +    kernel-trx
@@ -686,3 +893,6 @@ index ec96a5ac20..b354e8b11e 100644
  define Device/smartfiber_xp8421-b
    DEVICE_VENDOR := SmartFiber
    DEVICE_MODEL := XP8421-B
+-- 
+2.43.0
+

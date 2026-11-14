@@ -43,11 +43,12 @@ In `bin/targets/econet/en751221/`:
 |---|---|
 | `openwrt-econet-en751221-nokia_g140w-c-bringup-initramfs-kernel.bin` | RAM boot for testing (never writes slot A) |
 | `openwrt-econet-en751221-nokia_g140w-c-initramfs-kernel.bin` | RAM boot, production image (for installing) |
-| `openwrt-econet-en751221-nokia_g140w-c-squashfs-tclinux.trx` | Full slot A image (kernel + UBI), for the first install |
-| `openwrt-econet-en751221-nokia_g140w-c-squashfs-sysupgrade.bin` | Upgrades from a running OpenWrt |
+| `openwrt-econet-en751221-nokia_g140w-c-squashfs-sysupgrade.bin` | Installing from the RAM-booted production image, and upgrading |
 
-The install procedure is not final yet. Until it is, only use the
-`initramfs-kernel.bin` images (see [ram-boot.md](ram-boot.md)).
+There is no factory image to flash from the bootloader or the stock web
+interface: slot A also needs the bootloader's second stage, which only
+the router has, so installing goes through `sysupgrade`. See
+[install.md](install.md).
 
 ## Notes
 

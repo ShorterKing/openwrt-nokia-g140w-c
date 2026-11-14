@@ -1,7 +1,7 @@
-From 8b4435a96334173e0394c69bf1a4b2192709a56c Mon Sep 17 00:00:00 2001
+From f1d1c57906b335e16cd1be695723aec7da67d6e3 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 07:06:08 +0000
-Subject: [PATCH 8/9] base-files: uci-defaults: store the GRO setting as a
+Subject: [PATCH 11/12] base-files: uci-defaults: store the GRO setting as a
  boolean
 
 ucidef_set_network_device_gro stores its value as a JSON string, but
@@ -31,3 +31,6 @@ index 34005fe0fa..cbb4d33231 100644
  }
  
  ucidef_set_network_device_conduit() {
+-- 
+2.43.0
+

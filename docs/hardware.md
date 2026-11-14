@@ -64,6 +64,41 @@ tuning for an MT7621 or a standalone MT7530. With the
 the trap and TRGMII registers before the reset and restores them, keeps the
 PLL, and sets port 6's PMCR itself as usual.
 
+The on-die switch's end of the link has a TRGMII block of the same layout
+(base `0x1fb58000`), also set up by the bootloader. The `econet-eth` driver
+resets the on-die switch at probe, which clears part of it:
+
+| Register | Bootloader | After the reset |
+|---|---|---|
+| `0x7804` (trap) | `0x1608f` (manual override) | `0x60ef` (straps) |
+| `0x7830` (interface mode) | `0x1` (TRGMII) | `0x0` |
+| `0x7a54 + n × 8` (TD_ODT0–4) | `0xaa` | `0xff` |
+| `0x7a7c` | `0x77` | `0xff` |
+
+Everything else in `0x7a00`–`0x7a78` survives the reset. On reset defaults
+the link usually works, but once it started corrupting every frame from
+the MT7530: port 5 of the on-die switch counted only CRC errors (MIB offset
+`0x78`), no receive delay setting gave a clean frame, and only a power
+cycle helped. The patch series makes `econet-eth` save these registers
+before the reset and restore them; with the bootloader's values the link
+carries full-speed traffic with no CRC errors. From the bootloader prompt,
+`dump bfb5fa00 80` and `dump bfb5f800 40` show the tuned values.
+
+Even with those values in place, the on-die switch's receiver sometimes
+locks on badly when the MT7530 at the other end is reset and set up again,
+which the `mt7530` driver does after `econet-eth` has probed. Every frame
+from the MT7530 then fails the CRC check, while the other direction keeps
+working. On the reference unit that happened on 4 of 52 driver loads. A
+pulse on `RX_RST` (bit 31 of `0x7a00`, normally `0x20000`) makes the
+receiver lock on again at once:
+
+```
+v=$(devmem 0x1fb5fa00 32); devmem 0x1fb5fa00 32 $((v | 0x80000000)); devmem 0x1fb5fa00 32 $v
+```
+
+The patch series makes `econet-eth` do this whenever the port is opened.
+With it, 40 driver loads in a row came up with no CRC errors.
+
 ### Counters
 
 The on-die switch's counters are memory-mapped, which helps when checking
@@ -82,6 +117,12 @@ for p in 5 6; do printf "p$p rx:"; for o in 104 108 112; do printf " %d" $(devme
 The MT7530's own registers are only reachable over MDIO. For the LAN
 ports, `ip -s link show lan1` (and so on) gives the counts.
 
+Those `lan1`–`lan4` counts come from the MT7530's own counters, and
+`eth0`'s from the frame engine (GDM 1). They show what arrived at the
+ports, not what Linux received. The first column of
+`/proc/net/softnet_stat` (hex) counts the packets the network stack
+actually processed.
+
 ## Ethernet DMA (QDMA)
 
 The frame engine hands packets to the CPU through QDMA 0 at `0x1fb54000`
@@ -98,7 +139,18 @@ The frame engine hands packets to the CPU through QDMA 0 at `0x1fb54000`
   overflowed the ring at the start of each download, and the GDM 1 drop
   counter (`eth0` RX drops) rose by several hundred. With 512 it stays at 0.
 - **Interrupts.** `int_status` is at `+0x50` and `int_enable` at `+0x54`.
-  Bit 2 (TX "no descriptor") is always set; the driver leaves it disabled.
+  Bit 0 is TX done and bit 1 RX done. Bit 2 (TX "no descriptor") is always
+  set; the driver leaves it disabled.
+- **Starting the rings.** The interrupt handler masks a ring's interrupt
+  and leaves unmasking it to the NAPI poll. The driver used to turn DMA on
+  before enabling NAPI. Frames that had queued up in the frame engine
+  arrived at once, and on a busy network their interrupt often came in
+  between: it was masked, but the poll never ran, so the router received
+  nothing for the whole boot. `eth0` then counts about 580 received frames
+  and nothing more (the ring plus what the frame engine buffered), its
+  drop count climbs, and `int_enable` bit 1 is clear. Setting the bit by
+  hand doesn't help, because the driver keeps its own copy of the mask.
+  The patch series enables NAPI first and polls every ring once on start.
 
 The driver's debugfs, `/sys/kernel/debug/econet_eth/qdma0/`, shows the
 registers, interrupt counts per source and TX counts per channel and
@@ -162,7 +214,7 @@ The stock partitions are kept as they are. OpenWrt only uses slot A.
 |---|---|---|---|
 | `bootloader` | `0x0` | 256 KiB | tcboot |
 | `romfile` | `0x40000` | 256 KiB | Stock settings |
-| `tclinux` (slot A) | `0x80000` | 34 MiB | **OpenWrt**: `tclinux_kernel` (4 MiB TRX) + `ubi` (30 MiB) |
+| `tclinux` (slot A) | `0x80000` | 34 MiB | **OpenWrt**: `tclinux_kernel` (4 MiB) + `ubi` (27 MiB), see below |
 | `kernel_slave` + `rootfs_slave` (slot B) | `0x2280000` | 3 + 31 MiB | Stock firmware |
 | `kernel_oflt` + `rootfs_oflt` | `0x4480000` | 3 + 12 MiB | Stock OFLT image |
 | `config` | `0x5380000` | 8 MiB | Stock settings (UBIFS); holds the Wi-Fi calibration |
@@ -174,14 +226,40 @@ The stock partitions are kept as they are. OpenWrt only uses slot A.
 
 About 125 MiB between `0x6ec0000` and the bad-block pool is unused by stock.
 
+**Slot A** as OpenWrt uses it (offsets from the start of the slot):
+
+| Offset | Contents |
+|---|---|
+| `0x0` | TRX header, 256 bytes |
+| `0x100` | OpenWrt kernel (LZMA), padded with `0xff` |
+| `0x3e0000` | The bootloader's second stage ("bootram"), copied from the router |
+| `0x6e0000` | UBI (`mtd` partition `ubi`): `rootfs` (squashfs) and `rootfs_data` (settings) |
+
+The space between the bootram and UBI is unused, for the reason below.
+
 **Bad blocks:** the flash uses the vendor's bad-block table (BMT) with a pool
 of 163 blocks at the end of the chip. OpenWrt's `en75_bmt` driver understands
-it. Be aware that it remaps a block when a *read* hits an uncorrectable error
-or too many bit flips, so reading worn blocks can write to flash.
+it. On partitions marked `econet,enable-remap`, it remaps a block when a
+*read* hits an uncorrectable error or too many bit flips, which writes to
+flash. That goes wrong in slot A. The old stock data there has such errors,
+and the bootloader, which checks every remapped block at power-up, redoes
+any remap whose replacement block has lost its mapping mark. UBI erases
+blocks all the time, which removes that mark, so the bootloader then wipes
+UBI data at every boot. Test images had remapped blocks 36–58 of the
+reference unit like this. So slot A has no remapping, and UBI starts at
+block 59 (`0x760000` on the chip), past them.
 
-**Boot flags:** `flag` holds `commit`, `next_active`, `image0_is_valid`,
-`image1_is_valid` and `boot_fail_num`. `en75_chboot openwrt` and
-`en75_chboot factory` switch the active slot.
+**Boot flags:** `flag` (copied to `flagback`) starts with six 32-bit
+words: `commit`, `next_active` (0 = slot A), `image0_is_valid`,
+`image1_is_valid`, `boot_fail_num` and the current image. At every
+power-up the bootloader adds 1 to `boot_fail_num` and writes both
+partitions. When the count reaches 9 it switches to the other slot. The
+firmware is expected to clear the count once it has booted: stock does,
+and OpenWrt runs `en75_chboot openwrt` at the end of each boot for the same
+purpose (`/etc/init.d/bootcount`). `en75_chboot openwrt` and
+`en75_chboot factory` switch the active slot. To read the flag:
+`dd if=/dev/mtd13 bs=24 count=1 | hexdump -C` (check the partition number
+in `/proc/mtd`).
 
 ## MAC addresses
 
@@ -255,3 +333,29 @@ D501 D504 D510 D511 D512 D502 D506 D513 D505 D515 D514 D503.
   - `memrl <addr>` / `memwl <addr> <value>`: read or write a 32-bit word.
 - `httpd` and `flash` write to flash; avoid them unless you mean it.
 - There is no TFTP.
+
+### Bootloader stages
+
+tcboot runs in two stages. The first, in `bootloader`, reads `flag`, picks
+the slot and loads the second stage, the **bootram** (the one with the
+`bldr>` prompt), *from that slot*. In the slot's TRX it follows the kernel
+and rootfs, at `0x100 + kernel length + rootfs length`, and the TRX header
+holds its length:
+
+| Header offset | Field |
+|---|---|
+| `0x00` | Magic `2RDH` |
+| `0x08` | Total length, header included |
+| `0x0c` | CRC-32/JAMCRC of everything after the header |
+| `0x50` | Kernel length |
+| `0x54` | Rootfs length |
+| `0x94` | Bootram length (LZMA) |
+
+A slot without a bootram crashes the bootloader, and the router only falls
+back to the other slot after nine failed boots. The bootram is Nokia's
+code, so OpenWrt's images don't include it. Instead, `sysupgrade` copies it
+from the router (from slot A, or else from the stock firmware in slot B),
+puts it at `0x3e0000` behind the kernel and updates the header to match.
+The kernel length stays padded to `0x3dff00`: when booting slot B, the
+bootloader reads the kernel length from slot A, so it must not be shorter
+than the stock kernel.

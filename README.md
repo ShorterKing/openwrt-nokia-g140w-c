@@ -23,17 +23,16 @@ side and the phone port are out of scope, because their drivers are closed.
 | LEDs | ✅ | Power, PON, LOS, Internet, phone, USB, 2.4 GHz Wi-Fi |
 | Buttons | ✅ | Reset and LED on/off |
 | Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
-| USB | ⏳ | Not yet tested |
-| Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
+| USB | ❌ | The SoC has a USB 3.0 controller, but the reference unit has no USB connector |
+| WireGuard | ⏳ | In the build; the tunnel interface starts, a connection to a peer is not tested yet |
 | Switching back to the stock firmware | ✅ | `en75_chboot factory`, or automatically after nine failed boots |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
 
 The LEDs and buttons were found on hardware and are in the device tree. By
 default, the PON LED shows the WAN cable link, the Internet LED shows WAN
-link and traffic, the USB LED lights when a USB device is plugged in, and
-the 2.4 GHz LED shows Wi-Fi activity. These defaults are in the build but not
-yet checked on hardware.
+link and traffic, and the 2.4 GHz LED shows Wi-Fi activity. Both WAN LEDs
+were checked on hardware: they go off when the WAN cable is unplugged.
 
 ## Performance
 
@@ -90,7 +89,7 @@ driver's own repository, in
 | Flash | 256 MiB SPI-NAND (Winbond W25M02GV) |
 | Ethernet | 4x gigabit on an MT7530 switch inside the SoC package; LAN4 is the WAN port |
 | Wi-Fi | MT7592 (2.4 GHz, 802.11n 2x2) and MT7612E (5 GHz, 802.11ac 2x2) |
-| USB | xHCI host |
+| USB | xHCI controller in the SoC; no USB connector on the reference unit |
 | Serial | 115200 8N1, 3.3 V |
 | Bootloader | tcboot ("free bootbase"), 1-second key window |
 
@@ -158,10 +157,9 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Roadmap
 
-1. Test a first install on a router that never had OpenWrt. Check the WAN
-   LEDs.
-2. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
-   tethering.
+1. Test a first install on a router that never had OpenWrt, on a second
+   unit.
+2. Test WireGuard with a real peer.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
    CPU's second hardware thread.
 4. Send the Ethernet driver and interrupt fixes upstream, publish images

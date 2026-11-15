@@ -15,7 +15,7 @@ tests from the bootloader and from RAM-booted OpenWrt.
 | Ethernet PHYs | MT7530 GPHYs (ID `0x03a29412`) at MDIO addresses 1–4 |
 | PCIe RC0 | MT7592 (`14c3:7603`), 2.4 GHz, `mt7603` driver |
 | PCIe RC1 (Gen2) | MT7612E (`14c3:7662`), 5 GHz, `mt76x2e` driver |
-| USB | xHCI host |
+| USB | xHCI controller (USB 3.0); the reference unit has no USB connector |
 
 ## Switch
 

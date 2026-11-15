@@ -1,8 +1,7 @@
-From 0ef9a0e75db2bbe72e6fd56cd64827b9af442c26 Mon Sep 17 00:00:00 2001
+From 9d8c6e9f645d88d40968877083541f156994413b Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Fri, 13 Nov 2026 20:53:51 +0000
-Subject: [PATCH 10/14] econet: en751221: support the MT7530 module of the
- EN7526G
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 10/15] econet: en751221: support the EN7526G's MT7530
 
 The MT7530 module of the EN7526G is linked over TRGMII to the on-die
 switch. The bootloader sets the link up (200MHz clock, its own pad tuning

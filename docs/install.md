@@ -92,10 +92,12 @@ scripts that are installed now create the volume.
 en75_chboot factory; reboot
 ```
 
-The stock firmware should then boot from slot B with its old settings,
-with OpenWrt still in slot A. No way is known to switch slots from the
-stock firmware, so to return, boot OpenWrt from RAM again, run
-`en75_chboot openwrt`, and power-cycle.
+The stock firmware then boots from slot B with its old settings, with
+OpenWrt still in slot A. No way is known to switch slots from the stock
+firmware, so to return, boot OpenWrt from RAM again and either run
+`en75_chboot openwrt` and power-cycle, or reinstall with `sysupgrade` as
+in step 3, which selects slot A too. To keep your settings that way, save
+a backup first (`sysupgrade -b`, or LuCI) and pass it with `-f`.
 
 ## If it doesn't boot
 
@@ -132,8 +134,10 @@ On the reference unit:
 - The fallback to stock: an image that froze at boot made the bootloader
   start the stock firmware from slot B after nine failed boots, with
   OpenWrt and its settings intact in slot A.
+- Going back to stock with `en75_chboot factory`, then returning with a
+  RAM boot and `sysupgrade -f` with a settings backup.
 
 The first install there was done by hand, with the steps the upgrade now
 automates. Not tried yet: installing onto a router that never had
 OpenWrt (slot A still holds a stock image, so the upgrade formats it as
-UBI first), and going back to stock with `en75_chboot factory`.
+UBI first).

@@ -16,7 +16,7 @@ disk.
 git clone https://github.com/openwrt/openwrt.git
 git clone https://github.com/ShorterKing/openwrt-nokia-g140w-c.git
 cd openwrt
-git checkout 3d5a743f1f          # the commit the patches were made against
+git checkout 7b46f9593e          # the commit the patches were made against
 git am ../openwrt-nokia-g140w-c/patches/*.patch
 ./scripts/feeds update -a
 ./scripts/feeds install -a
@@ -34,6 +34,9 @@ in the PATH environment variable`:
 ```sh
 env PATH="$(echo "$PATH" | tr ':' '\n' | grep -vE '^/mnt/' | grep -E '^/' | paste -sd:)" make -j"$(nproc)"
 ```
+
+The last patch adds the RAM-test image, which is only meant for this
+repository's [RAM boot guide](ram-boot.md); the others are the port itself.
 
 ## Output
 

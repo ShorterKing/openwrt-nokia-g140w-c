@@ -1,7 +1,7 @@
-From f20c7711852e6c622c5af4092bd64262d2d01af6 Mon Sep 17 00:00:00 2001
+From 67c248a2800c1015e602d1911148ec537d364b3e Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 20:10:19 +0000
-Subject: [PATCH 12/14] econet: en751221: enable NVMEM on UBI volumes
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 12/15] econet: en751221: enable NVMEM on UBI volumes
 
 Let device trees describe NVMEM cells in UBI volumes, as the airoha,
 ath79 NAND and ipq806x targets do. The Nokia G-140W-C keeps its Wi-Fi

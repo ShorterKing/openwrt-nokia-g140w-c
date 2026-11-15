@@ -1,8 +1,7 @@
-From 8cae4ba1e8e15276f6f2c66cbc8dfbee426c1943 Mon Sep 17 00:00:00 2001
+From 9d013f471edbb6099688644dee49ae2b3526de43 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 08:36:59 +0000
-Subject: [PATCH 09/14] econet: en751221: fix delivery of odd-numbered
- interrupts
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 09/15] econet: en751221: fix delivery of odd interrupts
 
 In the MIPS interrupt compatibility mode, the EN751221 interrupt
 controller presents the number of the pending interrupt plus one, in

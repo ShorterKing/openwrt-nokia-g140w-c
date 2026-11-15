@@ -25,7 +25,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
 | USB | ⏳ | Not yet tested |
 | Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
-| Switching back to the stock firmware | ✅ | Automatic after nine failed boots, tested. `en75_chboot factory` not yet tried |
+| Switching back to the stock firmware | ✅ | `en75_chboot factory`, or automatically after nine failed boots |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
 
@@ -76,6 +76,10 @@ some boots received nothing at all: the driver could lose its first
 receive interrupt while starting, or the link between the LAN switch chip
 and the CPU could come up corrupting every frame. Both are described in
 [the hardware notes](docs/hardware.md).
+
+The six Ethernet driver fixes are also kept as commits on top of the
+driver's own repository, in
+[ShorterKing/econet_eth](https://github.com/ShorterKing/econet_eth).
 
 ## Hardware
 
@@ -134,11 +138,11 @@ The full GPIO, LED, button, MAC and flash maps are in
   it doesn't touch slot A. Other units' radios work with it, but may
   perform a little worse. Installed systems use their own unit's
   calibration.
-- Not tried yet: installing on a router that has never had OpenWrt, and
-  switching to stock with `en75_chboot factory`. Installing from the
-  RAM-booted image onto a router whose slot A already held OpenWrt works,
-  as do upgrades of the installed system and the bootloader's automatic
-  fallback to stock.
+- Not tried yet: installing on a router that has never had OpenWrt.
+  Installing from the RAM-booted image onto a router whose slot A already
+  held OpenWrt works, as do upgrades, switching to stock with
+  `en75_chboot factory` and back, and the bootloader's automatic fallback
+  to stock.
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).
@@ -154,8 +158,8 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 ## Roadmap
 
-1. Test a fresh install with `sysupgrade -n` and switching back to stock.
-   Check the WAN LEDs.
+1. Test a first install on a router that never had OpenWrt. Check the WAN
+   LEDs.
 2. Test the extras on hardware: USB storage and file sharing, WireGuard, USB
    tethering.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the

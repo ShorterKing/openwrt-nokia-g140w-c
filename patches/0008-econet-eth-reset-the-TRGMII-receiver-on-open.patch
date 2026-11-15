@@ -1,8 +1,7 @@
-From f2428b69ebdb4ba1d21636df9ace9e43f3d8a612 Mon Sep 17 00:00:00 2001
+From 7b9f87e810c322b513eca9aaa52ed2b14e8377ce Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 16:21:18 +0000
-Subject: [PATCH 08/14] econet-eth: reset the TRGMII receiver when the port is
- opened
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 08/15] econet-eth: reset the TRGMII receiver on open
 
 On the EN7526G the LAN ports are on an MT7530 that is linked to port 5
 of the on-die switch over TRGMII. The mt7530 driver resets that switch

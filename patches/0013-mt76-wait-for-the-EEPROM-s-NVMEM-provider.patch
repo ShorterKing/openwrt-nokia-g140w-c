@@ -1,7 +1,7 @@
-From 2a6d383cbc1e3fc84552d5374dc085fc9f94e355 Mon Sep 17 00:00:00 2001
+From 91e9d018317fc3f789cfbf38c43d2431aa3e5113 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 20:10:19 +0000
-Subject: [PATCH 13/14] mt76: wait for the EEPROM's NVMEM provider
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 13/15] mt76: wait for the EEPROM's NVMEM provider
 
 mt76_eeprom_init() treats every error from the EEPROM lookup as "not
 found", so when the NVMEM provider of the "eeprom" cell isn't there

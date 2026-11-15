@@ -1,7 +1,7 @@
-From a3622b025452d91fd085c75c8a78e60e8539e7e7 Mon Sep 17 00:00:00 2001
+From ea84dc5df46774ac684abf3fa44a5bf276320270 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 07:05:52 +0000
-Subject: [PATCH 04/14] econet-eth: align the IP header of received packets
+Date: Sat, 14 Nov 2026 20:20:57 +0000
+Subject: [PATCH 04/15] econet-eth: align the IP header of RX packets
 
 The QDMA stores each received frame at the start of its buffer, and the
 driver builds the skb there with no headroom. The IP header then sits 2

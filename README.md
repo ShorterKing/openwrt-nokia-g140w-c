@@ -1,7 +1,7 @@
 # OpenWrt for the Nokia G-140W-C
 
-An unofficial OpenWrt port for the **Nokia G-140W-C**, the fibre router (GPON ONT)
-that Airtel supplies in India. The goal is a complete OpenWrt router: dual-band
+An unofficial OpenWrt port for the **Nokia G-140W-C**, a fibre router (GPON ONT)
+that ISPs in India, such as ACT Fibernet and Tata Play Fiber, supply. The goal is a complete OpenWrt router: dual-band
 Wi-Fi, four gigabit ports with a separate WAN port, LEDs and buttons. The fibre
 side and the phone port are out of scope, because their drivers are closed.
 

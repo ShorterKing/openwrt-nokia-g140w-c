@@ -1,6 +1,6 @@
-From c60923c89fbcdfa5ca9d2e0884cf304c96b7ec39 Mon Sep 17 00:00:00 2001
+From 860183f6ef5f188c0e2ec5d744613117c2f6af5c Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 20:20:57 +0000
+Date: Sun, 15 Nov 2026 09:19:22 +0000
 Subject: [PATCH 03/15] econet-eth: add an MDIO bus
 
 The PHY indirect access controller of the on-die switch is the SoC's MDIO

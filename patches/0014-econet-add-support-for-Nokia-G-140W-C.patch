@@ -1,10 +1,11 @@
-From edf4769be0bcffacff63baecf4e737befc429b1e Mon Sep 17 00:00:00 2001
+From e0adf96d1d82717bd6b917e4b00c175f6269ff6a Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 20:20:57 +0000
+Date: Sun, 15 Nov 2026 09:19:22 +0000
 Subject: [PATCH 14/15] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
-dual-band Wi-Fi, supplied by Airtel in India.
+dual-band Wi-Fi, which ISPs in India such as ACT Fibernet and Tata Play
+Fiber supply.
 
 Hardware:
  - SoC: EcoNet EN7526G (EN751221 family), MIPS 34Kc, 2 threads, 900 MHz
@@ -14,7 +15,8 @@ Hardware:
    linked over TRGMII to the on-die switch
  - Wi-Fi 2.4 GHz: MT7592 (mt7603) on PCIe RC0
  - Wi-Fi 5 GHz: MT7612E (mt76x2) on PCIe RC1
- - USB: xHCI
+ - USB: none (the SoC's xHCI controller has no connector, so it is
+   disabled)
  - LEDs: power, PON, LOS, Internet, phone and USB on GPIOs; 2.4 GHz
    WLAN on the MT7592 LED pin
  - Buttons: reset (GPIO 0), LED on/off (GPIO 5)
@@ -69,38 +71,38 @@ en75_chboot. There is no
 factory image, since slot A needs the bootram, which only the router has.
 
 Tested on a G-140W-C: Wi-Fi on both bands, LAN1-LAN3 bridged and LAN4
-as WAN with DHCP, routing a 100 Mbit/s line at full speed, booting from
-flash with settings kept across reboots and the boot count cleared on
-each boot, a sysupgrade of the installed system with settings kept, and
-a sysupgrade from the RAM-booted initramfs that created the calibration
+as WAN with DHCP, the WAN LEDs, routing a 100 Mbit/s line at full speed,
+booting from flash with settings kept across reboots and the boot count
+cleared on each boot, sysupgrade of the installed system with settings
+kept, switching to stock with en75_chboot factory and back, and a
+sysupgrade from the RAM-booted initramfs that created the calibration
 volume, after which both radios used the same calibration as with the
 tables in the device tree.
 ---
- .../econet/base-files/etc/board.d/01_leds     |   5 +
+ .../econet/base-files/etc/board.d/01_leds     |   4 +
  .../econet/base-files/etc/board.d/02_network  |  13 +
  .../econet/base-files/etc/init.d/bootcount    |  15 +
  .../econet/base-files/lib/upgrade/nokia.sh    | 221 ++++++++++
  .../econet/base-files/lib/upgrade/platform.sh |  36 ++
  .../linux/econet/base-files/sbin/en75_chboot  |  13 +
- .../econet/dts/en751221_nokia_g140w-c.dts     | 392 ++++++++++++++++++
+ .../econet/dts/en751221_nokia_g140w-c.dts     | 397 ++++++++++++++++++
  target/linux/econet/image/en751221.mk         |  24 ++
- 8 files changed, 719 insertions(+)
+ 8 files changed, 723 insertions(+)
  create mode 100755 target/linux/econet/base-files/etc/init.d/bootcount
  create mode 100644 target/linux/econet/base-files/lib/upgrade/nokia.sh
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c.dts
 
 diff --git a/target/linux/econet/base-files/etc/board.d/01_leds b/target/linux/econet/base-files/etc/board.d/01_leds
-index 7b1a405171..6725bb939e 100644
+index 7b1a405171..8c26db6e7f 100644
 --- a/target/linux/econet/base-files/etc/board.d/01_leds
 +++ b/target/linux/econet/base-files/etc/board.d/01_leds
-@@ -35,6 +35,11 @@ jiofiber,jcow414)
+@@ -35,6 +35,10 @@ jiofiber,jcow414)
  	ucidef_set_led_netdev "lan3-green" "lan3" "mt7530-0:0b:green:lan-3" "lan3" "tx rx"
  	ucidef_set_led_netdev "lan4-green" "lan4" "mt7530-0:0c:green:lan-4" "lan4" "tx rx"
  	;;
 +nokia,g140w-c)
 +	ucidef_set_led_netdev "wan" "WAN" "green:wan" "lan4" "link"
 +	ucidef_set_led_netdev "internet" "Internet" "green:wan-online" "lan4" "link tx rx"
-+	ucidef_set_led_usbport "usb" "USB" "green:usb" "usb1-port1" "usb1-port2" "usb2-port1"
 +	;;
  esac
  
@@ -468,10 +470,10 @@ index 165a3ebb7b..6a8968547f 100755
          part=$(part_named '"reservearea"')
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dts b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
 new file mode 100644
-index 0000000000..5caf587647
+index 0000000000..15a5b12d30
 --- /dev/null
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,397 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +/*
 + * Nokia G-140W-C (EcoNet EN7526G, 512 MiB DDR3, 256 MiB SPI-NAND W25M02GV,
@@ -753,6 +755,11 @@ index 0000000000..5caf587647
 +	nvmem-cell-names = "mac-address";
 +};
 +
++/* The board has no USB connector */
++&usb {
++	status = "disabled";
++};
++
 +/*
 + * Radio placement confirmed from the stock boot log: MT7592 (14c3:7603) on
 + * PCIe RC0, MT7612E (14c3:7662, 64-bit BAR) on the Gen2 RC1.
@@ -865,7 +872,7 @@ index 0000000000..5caf587647
 +	};
 +};
 diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
-index ec96a5ac20..79a131448f 100644
+index ec96a5ac20..0bf5a070e5 100644
 --- a/target/linux/econet/image/en751221.mk
 +++ b/target/linux/econet/image/en751221.mk
 @@ -54,6 +54,30 @@ define Device/nokia_g240g-e
@@ -892,7 +899,7 @@ index ec96a5ac20..79a131448f 100644
 +  # decompresses to 0x81000000, so the loader (image, 1 MiB DTB slot and
 +  # 4 MiB heap) has to end below that.
 +  KERNEL_INITRAMFS := kernel-bin | append-dtb | check-size 11394032
-+  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
++  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
 +endef
 +TARGET_DEVICES += nokia_g140w-c
 +

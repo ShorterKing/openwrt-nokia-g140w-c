@@ -1,6 +1,6 @@
-From 9d013f471edbb6099688644dee49ae2b3526de43 Mon Sep 17 00:00:00 2001
+From 999a514d2353ef06686ef0fd4f04f4d326e58c75 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sat, 14 Nov 2026 20:20:57 +0000
+Date: Sun, 15 Nov 2026 09:19:22 +0000
 Subject: [PATCH 09/15] econet: en751221: fix delivery of odd interrupts
 
 In the MIPS interrupt compatibility mode, the EN751221 interrupt

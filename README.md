@@ -23,8 +23,10 @@ side and the phone port are out of scope, because their drivers are closed.
 | LEDs | ✅ | Power, PON, LOS, Internet, phone, USB, 2.4 GHz Wi-Fi |
 | Buttons | ✅ | Reset and LED on/off |
 | Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
-| USB | ⏳ | Two ports (USB1, USB2); not yet tested |
-| Extras: USB storage and file sharing, USB tethering, WireGuard | ⏳ | In the build; the WireGuard interface starts, the rest is not yet tested |
+| USB | ✅ | Both ports (USB1, USB2), USB 2.0 speed; the USB LED follows them |
+| USB storage | ✅ | FAT32 sticks on both ports, read at 15–23 MB/s |
+| USB tethering | ✅ | Android (RNDIS): the router used the phone's connection. iPhone not tested |
+| Extras: Windows file sharing, WireGuard | ⏳ | In the build; the WireGuard interface starts, the rest is not yet tested |
 | Switching back to the stock firmware | ✅ | `en75_chboot factory`, or automatically after nine failed boots |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
@@ -32,8 +34,8 @@ side and the phone port are out of scope, because their drivers are closed.
 The LEDs and buttons were found on hardware and are in the device tree. By
 default, the PON LED shows the WAN cable link, the Internet LED shows WAN
 link and traffic, the USB LED lights when a USB device is plugged in, and
-the 2.4 GHz LED shows Wi-Fi activity. Both WAN LEDs were checked on
-hardware: they go off when the WAN cable is unplugged.
+the 2.4 GHz LED shows Wi-Fi activity. The WAN and USB LEDs were checked on
+hardware.
 
 ## Performance
 
@@ -160,8 +162,8 @@ The full GPIO, LED, button, MAC and flash maps are in
 
 1. Test a first install on a router that never had OpenWrt, on a second
    unit.
-2. Test the extras on hardware: USB storage and file sharing, USB
-   tethering, and WireGuard with a real peer.
+2. Test Windows file sharing from a USB stick, and WireGuard with a real
+   peer.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
    CPU's second hardware thread.
 4. Send the Ethernet driver and interrupt fixes upstream, publish images

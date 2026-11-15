@@ -129,7 +129,11 @@ On the reference unit:
 - Finding the bootram in slot A and in slot B, and building the slot A
   image from it, in a dry run that matched a working image byte for byte.
 - Reboots, with the boot count cleared each time.
+- The fallback to stock: an image that froze at boot made the bootloader
+  start the stock firmware from slot B after nine failed boots, with
+  OpenWrt and its settings intact in slot A.
 
 The first install there was done by hand, with the steps the upgrade now
-automates. Not tried yet: installing with `sysupgrade -n` from the RAM
-image, and going back to stock with `en75_chboot factory`.
+automates. Not tried yet: installing onto a router that never had
+OpenWrt (slot A still holds a stock image, so the upgrade formats it as
+UBI first), and going back to stock with `en75_chboot factory`.

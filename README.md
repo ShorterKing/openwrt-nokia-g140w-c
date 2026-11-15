@@ -25,7 +25,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | Separate WAN port (LAN4) | ✅ | Gets an address by DHCP and routes at the full speed of a 100 Mbit/s line. See [Performance](#performance) |
 | USB | ⏳ | Not yet tested |
 | Extras: USB storage and file sharing, WireGuard, USB tethering | ⏳ | In the build, not yet tested |
-| Switching back to the stock firmware | ⏳ | `en75_chboot factory`; not yet tried |
+| Switching back to the stock firmware | ✅ | Automatic after nine failed boots, tested. `en75_chboot factory` not yet tried |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
 
@@ -134,10 +134,11 @@ The full GPIO, LED, button, MAC and flash maps are in
   it doesn't touch slot A. Other units' radios work with it, but may
   perform a little worse. Installed systems use their own unit's
   calibration.
-- Installing with `sysupgrade -n` from the RAM-booted image and switching
-  back to stock haven't been tried yet. The first install on the reference
-  unit was done by hand, with the steps `sysupgrade` now automates, and
-  upgrades of the installed system work.
+- Not tried yet: installing on a router that has never had OpenWrt, and
+  switching to stock with `en75_chboot factory`. Installing from the
+  RAM-booted image onto a router whose slot A already held OpenWrt works,
+  as do upgrades of the installed system and the bootloader's automatic
+  fallback to stock.
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).

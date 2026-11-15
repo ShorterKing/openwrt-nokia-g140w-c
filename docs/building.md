@@ -57,8 +57,9 @@ the router has, so installing goes through `sysupgrade`. See
 
 - `config/diffconfig` builds both devices (production and RAM test) with
   LuCI, WPA3-capable Wi-Fi (`wpad-basic-mbedtls`), the GPIO tools, and
-  `/dev/mem` for probing, plus WireGuard. There are no USB packages: the
-  board has no USB connector.
+  `/dev/mem` for probing. It also includes the extras: USB storage (FAT32,
+  exFAT, NTFS, ext4) with Windows file sharing (`ksmbd`), WireGuard, USB
+  tethering for Android and iPhone, and the USB LED trigger.
 - RAM-boot images must stay under 11,394,032 bytes. The bootloader loads
   them at `0x80020000` and the kernel decompresses to `0x81000000`, so a
   bigger loader would overlap it. The image recipe checks this and drops

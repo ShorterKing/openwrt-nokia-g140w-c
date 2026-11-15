@@ -1,6 +1,6 @@
-From 0fac44cf39ba764414011587333fe9a116999d23 Mon Sep 17 00:00:00 2001
+From d4b189a17309a11fb153d7afeeebd2445d30dfc7 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sun, 15 Nov 2026 09:19:34 +0000
+Date: Sun, 15 Nov 2026 08:21:40 +0000
 Subject: [PATCH 15/15] econet: add a RAM-test variant of the Nokia G-140W-C
 
 A RAM-boot image for trying OpenWrt without touching the flash: the
@@ -20,7 +20,7 @@ Not meant for upstream: it exists for the RAM boot guide of this port.
  create mode 100644 target/linux/econet/dts/en751221_nokia_g140w-c-bringup.dts
 
 diff --git a/target/linux/econet/base-files/etc/board.d/01_leds b/target/linux/econet/base-files/etc/board.d/01_leds
-index 8c26db6e7f..efe477d3d8 100644
+index 6725bb939e..82be82362d 100644
 --- a/target/linux/econet/base-files/etc/board.d/01_leds
 +++ b/target/linux/econet/base-files/etc/board.d/01_leds
 @@ -35,7 +35,8 @@ jiofiber,jcow414)
@@ -32,7 +32,7 @@ index 8c26db6e7f..efe477d3d8 100644
 +nokia,g140w-c-bringup)
  	ucidef_set_led_netdev "wan" "WAN" "green:wan" "lan4" "link"
  	ucidef_set_led_netdev "internet" "Internet" "green:wan-online" "lan4" "link tx rx"
- 	;;
+ 	ucidef_set_led_usbport "usb" "USB" "green:usb" "usb1-port1" "usb1-port2" "usb2-port1"
 diff --git a/target/linux/econet/base-files/etc/board.d/02_network b/target/linux/econet/base-files/etc/board.d/02_network
 index 4b6e24e254..376cc7a08a 100644
 --- a/target/linux/econet/base-files/etc/board.d/02_network
@@ -167,7 +167,7 @@ index 0000000000..cfe529530b
 +		0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff>;
 +};
 diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dts b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
-index 15a5b12d30..05ac7fa82e 100644
+index 5caf587647..3ce9816c42 100644
 --- a/target/linux/econet/dts/en751221_nokia_g140w-c.dts
 +++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
 @@ -164,7 +164,7 @@
@@ -179,7 +179,7 @@ index 15a5b12d30..05ac7fa82e 100644
  			label = "ubi";
  			reg = <0x760000 0x1b20000>;
  
-@@ -296,7 +296,7 @@
+@@ -291,7 +291,7 @@
  };
  
  &slot0 {
@@ -188,7 +188,7 @@ index 15a5b12d30..05ac7fa82e 100644
  		/* MT7592 2.4 GHz (mt7603 driver); stock used base MAC + 0x9 */
  		compatible = "mediatek,mt76";
  		reg = <0x0000 0 0 0 0>;
-@@ -315,7 +315,7 @@
+@@ -310,7 +310,7 @@
  };
  
  &slot1 {
@@ -198,7 +198,7 @@ index 15a5b12d30..05ac7fa82e 100644
  		compatible = "mediatek,mt76";
  		reg = <0x0000 0 0 0 0>;
 diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
-index 0bf5a070e5..1ec3249807 100644
+index 79a131448f..6e9073caed 100644
 --- a/target/linux/econet/image/en751221.mk
 +++ b/target/linux/econet/image/en751221.mk
 @@ -78,6 +78,17 @@ define Device/nokia_g140w-c
@@ -212,7 +212,7 @@ index 0bf5a070e5..1ec3249807 100644
 +  DEVICE_DTS := en751221_nokia_g140w-c-bringup
 +  KERNEL_INITRAMFS := kernel-bin | append-dtb | check-size 11394032
 +  IMAGES :=
-+  DEVICE_PACKAGES := kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
++  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
 +endef
 +TARGET_DEVICES += nokia_g140w-c-bringup
 +

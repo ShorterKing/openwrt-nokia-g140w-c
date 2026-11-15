@@ -1,6 +1,6 @@
-From d187a51ac733e8d61698a452fa9e0ce20fe4c9f3 Mon Sep 17 00:00:00 2001
+From b860af6830568843d3d2723539820741fa980be7 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sun, 15 Nov 2026 09:19:22 +0000
+Date: Sun, 15 Nov 2026 09:36:47 +0000
 Subject: [PATCH 05/15] econet-eth: use 512 RX descriptors
 
 The 128 RX descriptors hold about 1.5 ms of traffic at gigabit line rate.

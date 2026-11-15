@@ -1,6 +1,6 @@
-From 6fcb0ccad8d646ff610b4a1b7f55e4b9370bc765 Mon Sep 17 00:00:00 2001
+From 61ff7284b843195c8fe7e9d240a7a1bbb46bb047 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sun, 15 Nov 2026 09:19:22 +0000
+Date: Sun, 15 Nov 2026 09:36:47 +0000
 Subject: [PATCH 04/15] econet-eth: align the IP header of RX packets
 
 The QDMA stores each received frame at the start of its buffer, and the

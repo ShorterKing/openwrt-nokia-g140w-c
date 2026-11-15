@@ -1,6 +1,6 @@
-From aa1c5aa45db318e1e15024b310763f6552b53232 Mon Sep 17 00:00:00 2001
+From 0c19a3498cc11dc16a368d6b2d62b2790b08a493 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sun, 15 Nov 2026 09:19:22 +0000
+Date: Sun, 15 Nov 2026 09:36:47 +0000
 Subject: [PATCH 12/15] econet: en751221: enable NVMEM on UBI volumes
 
 Let device trees describe NVMEM cells in UBI volumes, as the airoha,

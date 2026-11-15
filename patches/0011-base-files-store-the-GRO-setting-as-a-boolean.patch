@@ -1,6 +1,6 @@
-From 30dd917c95f0bb1c91bf91479f98f58ff692f730 Mon Sep 17 00:00:00 2001
+From a23390969ee4fcb06196e8716a3a55c9c9f0c19d Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
-Date: Sun, 15 Nov 2026 09:19:22 +0000
+Date: Sun, 15 Nov 2026 09:36:47 +0000
 Subject: [PATCH 11/15] base-files: store the GRO setting as a boolean
 
 ucidef_set_network_device_gro stores its value as a JSON string, but

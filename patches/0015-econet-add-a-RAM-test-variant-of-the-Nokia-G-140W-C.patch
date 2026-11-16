@@ -1,7 +1,7 @@
 From d4b189a17309a11fb153d7afeeebd2445d30dfc7 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 08:21:40 +0000
-Subject: [PATCH 15/15] econet: add a RAM-test variant of the Nokia G-140W-C
+Subject: [PATCH 15/16] econet: add a RAM-test variant of the Nokia G-140W-C
 
 A RAM-boot image for trying OpenWrt without touching the flash: the
 production device tree with slot A's UBI area renamed, so it is neither

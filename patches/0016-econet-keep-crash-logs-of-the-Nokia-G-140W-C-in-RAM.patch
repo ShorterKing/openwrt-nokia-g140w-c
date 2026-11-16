@@ -1,0 +1,127 @@
+From 2cf108843f814934e95677bbcb4bab87fbfc3e69 Mon Sep 17 00:00:00 2001
+From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 18:57:20 +0000
+Subject: [PATCH 16/16] econet: keep crash logs of the Nokia G-140W-C in RAM
+
+The router has rebooted on its own a few times and the panic message
+was lost, since nothing is kept unless a serial console is attached.
+
+Use ramoops in the RAM above what Linux uses. The 8 MiB from
+0x1b800000 up to the I/O window are free and keep their contents
+through a reset, but not a power cut. 1 MiB holds five 128 KiB panic
+dumps and a 256 KiB copy of the console, with ECC.
+
+pstore-save copies the records to /root/pstore after an unexpected
+reboot and keeps the newest five. A clean reboot leaves a marker at
+the end of the console record, so those are skipped.
+
+Tested with the same area set through ramoops module parameters on
+build17: a sysrq crash was saved, a normal reboot saved nothing. The
+device tree version builds but has not been booted yet.
+
+Not meant for upstream.
+---
+ .../econet/base-files/etc/init.d/pstore-save  | 42 +++++++++++++++++++
+ .../econet/dts/en751221_nokia_g140w-c.dts     | 22 ++++++++++
+ target/linux/econet/image/en751221.mk         |  3 +-
+ 3 files changed, 66 insertions(+), 1 deletion(-)
+ create mode 100755 target/linux/econet/base-files/etc/init.d/pstore-save
+
+diff --git a/target/linux/econet/base-files/etc/init.d/pstore-save b/target/linux/econet/base-files/etc/init.d/pstore-save
+new file mode 100755
+index 0000000000..083c08e3a7
+--- /dev/null
++++ b/target/linux/econet/base-files/etc/init.d/pstore-save
+@@ -0,0 +1,42 @@
++#!/bin/sh /etc/rc.common
++# Keep crash logs across reboots.
++#
++# ramoops (the device tree reserves it) stores kernel panic dumps and a
++# copy of the console in RAM at 0x1b800000, above the memory Linux uses.
++# That RAM survives a reset but not a power cut. After an unexpected
++# reboot this script copies the records to flash under /root/pstore.
++
++START=11
++STOP=99
++
++DIR=/root/pstore
++P=/sys/fs/pstore
++MARK="pstore-save: clean shutdown"
++
++start() {
++	[ -d "$P" ] || return 0
++	grep -q " $P pstore " /proc/mounts || mount -t pstore pstore "$P" || return 0
++	[ -n "$(ls "$P")" ] || return 0
++
++	# Only a console record that ends with our marker: a normal reboot.
++	if [ -z "$(ls "$P" | grep -v '^console-')" ] &&
++	   tail -c 2048 "$P"/console-ramoops-0 2>/dev/null | grep -q "$MARK"; then
++		rm -f "$P"/*
++		return 0
++	fi
++
++	local d="$DIR/$(date +%Y%m%d-%H%M%S)"
++	mkdir -p "$d" && cp "$P"/* "$d"/ && rm -f "$P"/*
++	echo "<4>pstore-save: unexpected reboot, saved $(ls "$d" | wc -l) record(s) to $d" > /dev/kmsg
++
++	# keep the newest 5
++	local n=$(ls -1 "$DIR" | wc -l)
++	[ "$n" -gt 5 ] && ls -1 "$DIR" | sort | head -n $((n - 5)) | while read -r old; do
++		rm -rf "$DIR/$old"
++	done
++	return 0
++}
++
++stop() {
++	echo "<4>$MARK" > /dev/kmsg
++}
+diff --git a/target/linux/econet/dts/en751221_nokia_g140w-c.dts b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
+index 3ce9816c42..96994001e4 100644
+--- a/target/linux/econet/dts/en751221_nokia_g140w-c.dts
++++ b/target/linux/econet/dts/en751221_nokia_g140w-c.dts
+@@ -33,6 +33,28 @@
+ 		linux,usable-memory-range = <0x00020000 0x1b7e0000>;
+ 	};
+ 
++	/*
++	 * Crash logs. The 8 MiB from 0x1b800000 up to the I/O window are
++	 * not used by Linux and keep their contents through a reset (not a
++	 * power cut). 1 MiB holds five 128 KiB panic dumps and a 256 KiB
++	 * copy of the console.
++	 */
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		ramoops@1b800000 {
++			compatible = "ramoops";
++			reg = <0x1b800000 0x100000>;
++			no-map;
++			record-size = <0x20000>;
++			console-size = <0x40000>;
++			ecc-size = <16>;
++			mem-type = <1>;
++		};
++	};
++
+ 	aliases {
+ 		led-boot = &led_power;
+ 		led-failsafe = &led_red;
+diff --git a/target/linux/econet/image/en751221.mk b/target/linux/econet/image/en751221.mk
+index 6e9073caed..d3dd8e5833 100644
+--- a/target/linux/econet/image/en751221.mk
++++ b/target/linux/econet/image/en751221.mk
+@@ -74,7 +74,8 @@ define Device/nokia_g140w-c
+   # decompresses to 0x81000000, so the loader (image, 1 MiB DTB slot and
+   # 4 MiB heap) has to end below that.
+   KERNEL_INITRAMFS := kernel-bin | append-dtb | check-size 11394032
+-  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls
++  DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt76x2 wpad-basic-mbedtls \
++    kmod-ramoops
+ endef
+ TARGET_DEVICES += nokia_g140w-c
+ 
+-- 
+2.43.0
+

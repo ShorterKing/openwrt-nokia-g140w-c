@@ -28,6 +28,7 @@ side and the phone port are out of scope, because their drivers are closed.
 | USB tethering | ✅ | Android (RNDIS): the router used the phone's connection. iPhone not tested |
 | Extras: Windows file sharing, WireGuard | ⏳ | In the build; the WireGuard interface starts, the rest is not yet tested |
 | Switching back to the stock firmware | ✅ | `en75_chboot factory`, or automatically after nine failed boots |
+| Crash logs (pstore) | ⏳ | Kept in RAM through a reset and saved to `/root/pstore`. Built, not booted yet. See [docs/crash-logs.md](docs/crash-logs.md) |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
 
@@ -156,7 +157,7 @@ The full GPIO, LED, button, MAC and flash maps are in
 | `patches/` | The OpenWrt changes as a patch series (apply with `git am`) |
 | `config/diffconfig` | Build configuration |
 | `tools/g140wc-probe` | Bring-up helper for RAM-booted images |
-| `docs/` | Hardware notes, RAM boot guide, build guide |
+| `docs/` | Hardware notes, RAM boot guide, build guide, crash logs |
 
 ## Roadmap
 

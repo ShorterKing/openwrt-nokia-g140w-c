@@ -1,7 +1,7 @@
 From b349aadd6b2c1d4155915be703dd13ebfc72ab38 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 09:36:47 +0000
-Subject: [PATCH 14/15] econet: add support for Nokia G-140W-C
+Subject: [PATCH 14/16] econet: add support for Nokia G-140W-C
 
 The Nokia G-140W-C is a GPON ONT with four gigabit LAN ports and
 dual-band Wi-Fi, which ISPs in India such as ACT Fibernet and Tata Play

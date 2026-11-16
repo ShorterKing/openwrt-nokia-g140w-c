@@ -1,7 +1,7 @@
 From 1423ca0fb692075dacddf0240546ec815818f920 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 09:36:47 +0000
-Subject: [PATCH 03/15] econet-eth: add an MDIO bus
+Subject: [PATCH 03/16] econet-eth: add an MDIO bus
 
 The PHY indirect access controller of the on-die switch is the SoC's MDIO
 master. Besides the on-die switch's own PHYs, it reaches the MT7530

@@ -1,7 +1,7 @@
 From cb67fbc05532f1846d477c91123206fee08f9788 Mon Sep 17 00:00:00 2001
 From: ShorterKing <84120105+ShorterKing@users.noreply.github.com>
 Date: Sun, 15 Nov 2026 09:36:47 +0000
-Subject: [PATCH 07/15] econet-eth: don't lose the first RX interrupt
+Subject: [PATCH 07/16] econet-eth: don't lose the first RX interrupt
 
 The interrupt handler masks a ring's interrupt and schedules its NAPI,
 and only the NAPI poll unmasks it again. en75_qdma_use() turned DMA on

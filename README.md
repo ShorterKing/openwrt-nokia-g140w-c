@@ -1,13 +1,19 @@
 # OpenWrt for the Nokia G-140W-C
 
+By **Akshat Singh** ([ShorterKing](https://github.com/ShorterKing)).
+
 An unofficial OpenWrt port for the **Nokia G-140W-C**, a fibre router (GPON ONT)
-that ISPs in India, such as ACT Fibernet and Tata Play Fiber, supply. The goal is a complete OpenWrt router: dual-band
-Wi-Fi, four gigabit ports with a separate WAN port, LEDs and buttons. The fibre
-side and the phone port are out of scope, because their drivers are closed.
+that ISPs in India, such as ACT Fibernet and Tata Play Fiber, supply. The
+goal is a complete OpenWrt router: dual-band Wi-Fi, four gigabit ports with a
+separate WAN port, LEDs and buttons. The fibre side and the phone port are out
+of scope, because their drivers are closed.
 
 > **Status: work in progress.** OpenWrt is installed and running on the
-> reference unit, from flash, with settings kept and `sysupgrade` working. Wi-Fi, the LAN ports and the separate WAN port work, and routing
-> keeps up with a 100 Mbit/s line. There are no downloadable images yet:
+> reference unit, from flash, with settings kept and `sysupgrade` working.
+> Wi-Fi, the LAN ports and the separate WAN port work, and routing keeps up
+> with a 100 Mbit/s line. A second unit has also booted OpenWrt from RAM.
+> The fixes are on their way into OpenWrt and Linux: see
+> [Upstream status](#upstream-status). There are no downloadable images yet:
 > build them as in [docs/building.md](docs/building.md).
 
 ## What works
@@ -89,7 +95,7 @@ driver's own repository, in
 |---|---|
 | SoC | EcoNet EN7526G (EN751221 family), MIPS 34Kc, 2 threads, 900 MHz |
 | RAM | 512 MiB DDR3 (Linux can use 440 MiB) |
-| Flash | 256 MiB SPI-NAND (Winbond W25M02GV) |
+| Flash | 256 MiB SPI-NAND: Winbond W25M02GV on the reference unit, Toshiba TC58CVG1S3H on a second one |
 | Ethernet | 4x gigabit on an MT7530 switch inside the SoC package; LAN4 is the WAN port |
 | Wi-Fi | MT7592 (2.4 GHz, 802.11n 2x2) and MT7612E (5 GHz, 802.11ac 2x2) |
 | USB | 2 ports (xHCI) |
@@ -129,6 +135,25 @@ The full GPIO, LED, button, MAC and flash maps are in
   then run `sysupgrade`.
 - **Build it yourself:** [docs/building.md](docs/building.md).
 
+## Upstream status
+
+The goal is to get this port into OpenWrt itself. Each fix goes to the
+project that owns the code:
+
+| Change | Submitted to | Status |
+|---|---|---|
+| Interrupt controller: deliver odd-numbered interrupts | OpenWrt ([PR #26744](https://github.com/openwrt/openwrt/pull/26744)) and the Linux kernel ([patch series](https://lore.kernel.org/all/20261115-en751221-intc-all-lines-v1-0-dc03a40f47f0@gmail.com/)) | In review |
+| Ethernet driver: don't lose the first receive interrupt | The driver's repository ([econet_eth PR #19](https://github.com/cjdelisle/econet_eth/pull/19)) | In review |
+| Ethernet driver: aligned receive buffers, more descriptors | Tested on this router for another contributor's [econet_eth PR #17](https://github.com/cjdelisle/econet_eth/pull/17) | In review |
+| Device support for the G-140W-C | OpenWrt, once the switch support below is in | Planned |
+
+This port drives the LAN switch with its own changes to the Ethernet driver
+and the mainline `mt7530` driver. Caleb James DeLisle, the author of the
+Ethernet driver, has DSA switch support for EcoNet in progress
+([cjdelisle/openwrt, branch `econet-dsa-switch-sept21-2026`](https://github.com/cjdelisle/openwrt/tree/econet-dsa-switch-sept21-2026)).
+It ran on this router at full line speed in a RAM test, so the OpenWrt
+submission will build on it, and the switch patches here will be replaced.
+
 ## Known issues
 
 - **Linux uses one of the CPU's two hardware threads.** The EN7526G's 34Kc
@@ -145,6 +170,13 @@ The full GPIO, LED, button, MAC and flash maps are in
   held OpenWrt works, as do upgrades, switching to stock with
   `en75_chboot factory` and back, and the bootloader's automatic fallback
   to stock.
+- **Some ISP units have a locked bootloader.** On a unit from Tata Play
+  Fiber, the bootloader's second stage is a different build from the
+  reference unit's: a key press at boot asks for a login, and the RAM-boot
+  steps in [docs/ram-boot.md](docs/ram-boot.md) don't work unchanged. Its
+  stock firmware also sits in slot A, with slot B marked invalid: the
+  reverse of the reference unit. The install steps here assume an unlocked
+  bootloader and stock in slot B.
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).
@@ -166,13 +198,17 @@ The full GPIO, LED, button, MAC and flash maps are in
    peer.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
    CPU's second hardware thread.
-4. Send the Ethernet driver and interrupt fixes upstream, publish images
-   and submit the port to OpenWrt.
+4. Get the fixes and the device support into OpenWrt (see
+   [Upstream status](#upstream-status)), then publish images.
 
 ## Credits
 
 - The OpenWrt developers behind the EcoNet target and the Nokia G-240G-E
   support that this port builds on.
+- Caleb James DeLisle, for the econet_eth Ethernet driver and the EcoNet DSA
+  switch work.
+- Emre Yavuzalp, whose transmit fixes in the Ethernet driver took downloads
+  from 13 to 59 Mbit/s.
 - The mt76 Wi-Fi driver developers.
 
 ## Disclaimer
@@ -183,4 +219,5 @@ your own risk.
 
 ## License
 
-GPL-2.0, like OpenWrt. The device tree files carry their own SPDX headers.
+The changes in this repository are © 2026 Akshat Singh, licensed under
+GPL-2.0 like OpenWrt. The device tree files carry their own SPDX headers.

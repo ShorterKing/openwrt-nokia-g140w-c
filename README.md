@@ -32,7 +32,8 @@ of scope, because their drivers are closed.
 | USB | ✅ | Both ports (USB1, USB2), USB 2.0 speed; the USB LED follows them |
 | USB storage | ✅ | FAT32 sticks on both ports, read at 15–23 MB/s |
 | USB tethering | ✅ | Android (RNDIS): the router used the phone's connection. iPhone not tested |
-| Extras: Windows file sharing, WireGuard | ⏳ | In the build; the WireGuard interface starts, the rest is not yet tested |
+| Windows file sharing (USB disk) | ⏳ | In the build (`ksmbd`), not yet tested. Testers welcome: please report how it works for you |
+| WireGuard | ⏳ | In the build; the interface starts, a tunnel to a real peer is not yet tested |
 | Switching back to the stock firmware | ✅ | `en75_chboot factory`, or automatically after nine failed boots |
 | WLAN and WPS buttons | ❌ | Wired to a Wi-Fi chip, which the mt76 driver can't read |
 | Fibre (GPON), phone port (VoIP) | ❌ | Closed vendor drivers |
@@ -176,7 +177,9 @@ submission will build on it, and the switch patches here will be replaced.
   steps in [docs/ram-boot.md](docs/ram-boot.md) don't work unchanged. Its
   stock firmware also sits in slot A, with slot B marked invalid: the
   reverse of the reference unit. The install steps here assume an unlocked
-  bootloader and stock in slot B.
+  bootloader and stock in slot B. I found a way to boot OpenWrt on such a
+  unit anyway; it's documented in
+  [ShorterKing/hardware-testing](https://github.com/ShorterKing/hardware-testing).
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).
@@ -192,10 +195,11 @@ submission will build on it, and the switch patches here will be replaced.
 
 ## Roadmap
 
-1. Test a first install on a router that never had OpenWrt, on a second
-   unit.
-2. Test Windows file sharing from a USB stick, and WireGuard with a real
-   peer.
+1. Second unit: OpenWrt has booted on a Tata Play Fiber unit that never
+   had it, with a different flash chip (Toshiba) and a locked bootloader.
+   See [ShorterKing/hardware-testing](https://github.com/ShorterKing/hardware-testing).
+2. Windows file sharing from a USB disk, and WireGuard with a real peer:
+   testers welcome.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the
    CPU's second hardware thread.
 4. Get the fixes and the device support into OpenWrt (see

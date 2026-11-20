@@ -197,7 +197,7 @@ submission will build on it, and the switch patches here will be replaced.
 
 1. Second unit: OpenWrt has booted on a Tata Play Fiber unit that never
    had it, with a different flash chip (Toshiba) and a locked bootloader.
-   See [ShorterKing/hardware-testing](https://github.com/ShorterKing/hardware-testing).
+   See [ShorterKing/hardware-testing](https://github.com/ShorterKing/Hardware-Hacking).
 2. Windows file sharing from a USB disk, and WireGuard with a real peer:
    testers welcome.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the

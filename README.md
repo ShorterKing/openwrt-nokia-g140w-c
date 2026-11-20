@@ -179,7 +179,7 @@ submission will build on it, and the switch patches here will be replaced.
   reverse of the reference unit. The install steps here assume an unlocked
   bootloader and stock in slot B. I found a way to boot OpenWrt on such a
   unit anyway; it's documented in
-  [ShorterKing/hardware-testing](https://github.com/ShorterKing/hardware-testing).
+  [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking).
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).

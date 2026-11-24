@@ -11,7 +11,8 @@ of scope, because their drivers are closed.
 > **Status: work in progress.** OpenWrt is installed and running on the
 > reference unit, from flash, with settings kept and `sysupgrade` working.
 > Wi-Fi, the LAN ports and the separate WAN port work, and routing keeps up
-> with a 100 Mbit/s line. A second unit has also booted OpenWrt from RAM.
+> with a 100 Mbit/s line. A second unit, an ISP-locked one that never had
+> OpenWrt, now runs it from flash too.
 > The fixes are on their way into OpenWrt and Linux: see
 > [Upstream status](#upstream-status). There are no downloadable images yet:
 > build them as in [docs/building.md](docs/building.md).
@@ -20,7 +21,7 @@ of scope, because their drivers are closed.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Install to flash, `sysupgrade` | ✅ | OpenWrt in slot A, stock kept in slot B. See [docs/install.md](docs/install.md) |
+| Install to flash, `sysupgrade` | ✅ | OpenWrt in slot A, stock kept in slot B. Tested on two units, one of which never had OpenWrt. See [docs/install.md](docs/install.md) |
 | Boot from RAM for testing | ✅ | Linux 6.18, loaded over the serial console |
 | LAN ports (LAN1–LAN3) | ✅ | Bridged, through the mainline `mt7530` DSA driver |
 | Wi-Fi 2.4 GHz (MT7592) | ✅ | Access point with WPA2 |
@@ -143,17 +144,18 @@ project that owns the code:
 
 | Change | Submitted to | Status |
 |---|---|---|
-| Interrupt controller: deliver odd-numbered interrupts | OpenWrt ([PR #26744](https://github.com/openwrt/openwrt/pull/26744)) and the Linux kernel ([patch series](https://lore.kernel.org/all/20261115-en751221-intc-all-lines-v1-0-dc03a40f47f0@gmail.com/)) | In review |
+| Interrupt controller: deliver odd-numbered interrupts | OpenWrt ([PR #26744](https://github.com/openwrt/openwrt/pull/26744)) and the Linux kernel ([patch series v2](https://lore.kernel.org/all/20261124-en751221-intc-all-lines-v2-0-a33a520aac81@gmail.com/)) | In review. Caleb James DeLisle tested v1 and gave his Tested-by |
 | Ethernet driver: don't lose the first receive interrupt | The driver's repository ([econet_eth PR #19](https://github.com/cjdelisle/econet_eth/pull/19)) | In review |
 | Ethernet driver: aligned receive buffers, more descriptors | Tested on this router for another contributor's [econet_eth PR #17](https://github.com/cjdelisle/econet_eth/pull/17) | In review |
-| Device support for the G-140W-C | OpenWrt, once the switch support below is in | Planned |
+| Device support for the G-140W-C | OpenWrt, on top of the switch support below ([PR #25330](https://github.com/openwrt/openwrt/pull/25330)) | Planned |
 
 This port drives the LAN switch with its own changes to the Ethernet driver
 and the mainline `mt7530` driver. Caleb James DeLisle, the author of the
-Ethernet driver, has DSA switch support for EcoNet in progress
-([cjdelisle/openwrt, branch `econet-dsa-switch-sept21-2026`](https://github.com/cjdelisle/openwrt/tree/econet-dsa-switch-sept21-2026)).
-It ran on this router at full line speed in a RAM test, so the OpenWrt
-submission will build on it, and the switch patches here will be replaced.
+Ethernet driver, has DSA switch support for EcoNet in review in OpenWrt
+([PR #25330](https://github.com/openwrt/openwrt/pull/25330)). An earlier
+version of it ran on this router at full line speed in a RAM test, so the
+OpenWrt submission will build on it, and the switch patches here will be
+replaced.
 
 ## Known issues
 
@@ -161,25 +163,35 @@ submission will build on it, and the switch patches here will be replaced.
   core has two (VPEs), but the kernel's EN751221 platform code doesn't
   start the second one yet. Routing a 100 Mbit/s line keeps that one
   thread about 90% busy, so a faster line, or heavy Wi-Fi traffic at the
-  same time, may hit the limit.
+  same time, may hit the limit. Experimental dual-thread builds run on the
+  second unit but aren't part of this release: the SoC froze when both
+  threads read from the same Wi-Fi chip over PCIe at once, and avoiding
+  that takes a lock shared by the PCIe and Wi-Fi drivers. Forwarding is only fast
+  with all network work on one thread. With both, a 10-hour test with both
+  radios loaded passed.
 - The RAM-test image carries the reference unit's Wi-Fi calibration, since
   it doesn't touch slot A. Other units' radios work with it, but may
   perform a little worse. Installed systems use their own unit's
   calibration.
-- Not tried yet: installing on a router that has never had OpenWrt.
-  Installing from the RAM-booted image onto a router whose slot A already
-  held OpenWrt works, as do upgrades, switching to stock with
-  `en75_chboot factory` and back, and the bootloader's automatic fallback
-  to stock.
+- Installing on a router that never had OpenWrt works: on the Tata Play
+  Fiber unit, slot A held stock firmware, and the steps in
+  [docs/install.md](docs/install.md) went through unchanged (24 November
+  2026). Installing over an earlier OpenWrt works too, as do upgrades,
+  switching to stock with `en75_chboot factory` and back, and the
+  bootloader's automatic fallback to stock.
 - **Some ISP units have a locked bootloader.** On a unit from Tata Play
   Fiber, the bootloader's second stage is a different build from the
   reference unit's: a key press at boot asks for a login, and the RAM-boot
-  steps in [docs/ram-boot.md](docs/ram-boot.md) don't work unchanged. Its
-  stock firmware also sits in slot A, with slot B marked invalid: the
-  reverse of the reference unit. The install steps here assume an unlocked
-  bootloader and stock in slot B. I found a way to boot OpenWrt on such a
-  unit anyway; it's documented in
-  [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking).
+  steps in [docs/ram-boot.md](docs/ram-boot.md) don't work unchanged. I
+  found another way into RAM, through the bootloader's first stage; it's
+  documented in [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking). From there the normal
+  install worked: the unit's own locked second stage boots OpenWrt from
+  slot A, since its login only guards the key-press menu. Its slot B holds
+  an older complete stock image, which was flagged invalid at first, and it
+  boots, so it stays as the fallback. Many RAM boots in a row make the
+  bootloader switch slots by itself, because RAM boots never clear its
+  failed-boot count; the install selects slot A again. Details and boot
+  logs: [firmware slots, boot flags and the install](https://github.com/ShorterKing/Hardware-Hacking/blob/main/docs/g140wc-slots-and-boot-flags.md).
 - 2.9 MiB of slot A is left unused. Test images had made the bootloader
   wipe some blocks there at every boot, so UBI starts after them; see
   [the flash notes](docs/hardware.md#flash-layout).
@@ -195,9 +207,9 @@ submission will build on it, and the switch patches here will be replaced.
 
 ## Roadmap
 
-1. Second unit: OpenWrt has booted on a Tata Play Fiber unit that never
-   had it, with a different flash chip (Toshiba) and a locked bootloader.
-   See [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking).
+1. Second unit: done. OpenWrt runs from flash on a Tata Play Fiber unit
+   that never had it, with a different flash chip (Toshiba) and a locked
+   bootloader. See [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking).
 2. Windows file sharing from a USB disk, and WireGuard with a real peer:
    testers welcome.
 3. Lower the CPU load: interrupt coalescing in the Ethernet driver, and the

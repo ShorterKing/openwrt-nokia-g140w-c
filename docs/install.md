@@ -67,6 +67,11 @@ The upgrade then:
 
 The router comes up as OpenWrt from flash, at `192.168.1.1` again.
 
+On a first install, the console may show a firmware-loading warning from
+the 5 GHz Wi-Fi driver just before the reboot. Creating the calibration
+volume wakes the Wi-Fi drivers after the upgrade has removed their firmware
+files. It's harmless: the next boot loads both radios normally.
+
 ## After installing
 
 - Set a root password, with `passwd` on the console or in LuCI.
@@ -98,6 +103,21 @@ firmware, so to return, boot OpenWrt from RAM again and either run
 `en75_chboot openwrt` and power-cycle, or reinstall with `sysupgrade` as
 in step 3, which selects slot A too. To keep your settings that way, save
 a backup first (`sysupgrade -b`, or LuCI) and pass it with `-f`.
+
+## Units with a locked bootloader
+
+On some ISP units, such as the one from Tata Play Fiber, a key press in the
+bootloader's window asks for a login, so step 1 needs another way into RAM:
+see [ShorterKing/Hardware-Hacking](https://github.com/ShorterKing/Hardware-Hacking). The rest is the same. The install
+keeps the unit's own second stage in slot A, and that one boots OpenWrt:
+the login only guards its key-press menu.
+
+The bootloader counts every power-on as a failed boot until a system
+clears the count, and RAM boots never do. So after about nine RAM boots in
+a row it switches to the other slot by itself. That doesn't hurt the
+install, which selects slot A again, but if you power-cycle such a unit
+without a RAM boot in between, it may come up from slot B. See
+[firmware slots, boot flags and the install](https://github.com/ShorterKing/Hardware-Hacking/blob/main/docs/g140wc-slots-and-boot-flags.md).
 
 ## If it doesn't boot
 

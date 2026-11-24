@@ -256,7 +256,10 @@ power-up the bootloader adds 1 to `boot_fail_num` and writes both
 partitions. When the count reaches 9 it switches to the other slot. The
 firmware is expected to clear the count once it has booted: stock does,
 and OpenWrt runs `en75_chboot openwrt` at the end of each boot for the same
-purpose (`/etc/init.d/bootcount`). `en75_chboot openwrt` and
+purpose (`/etc/init.d/bootcount`). A RAM boot runs no firmware that does,
+so about nine RAM boots in a row make the bootloader switch to the other
+slot and mark the old one invalid, as happened on the second unit.
+`en75_chboot openwrt` and
 `en75_chboot factory` switch the active slot. To read the flag:
 `dd if=/dev/mtd13 bs=24 count=1 | hexdump -C` (check the partition number
 in `/proc/mtd`).
@@ -395,6 +398,12 @@ back to the other slot after nine failed boots. The bootram is Nokia's
 code, so OpenWrt's images don't include it. Instead, `sysupgrade` copies it
 from the router (from slot A, or else from the stock firmware in slot B),
 puts it at `0x3e0000` behind the kernel and updates the header to match.
+At power-up the first stage also prints a size check for each slot, such
+as `tclinux_slave partition size = 0x1000000, real size = 0x2ab0ac6d`. It
+assumes 16 MiB slots, so for slot B it reads a header at `0x1080000`,
+inside slot A, and the size it prints is garbage. It's only a message: the
+second stage boots slot B from `0x2280000`.
+
 The kernel length stays padded to `0x3dff00`: when booting slot B, the
 bootloader reads the kernel length from slot A, so it must not be shorter
 than the stock kernel.
